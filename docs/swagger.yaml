@@ -1,0 +1,270 @@
+basePath: /api/v1
+definitions:
+  trongcon-api_api_swagger.ErrBody:
+    properties:
+      error:
+        type: string
+    type: object
+  trongcon-api_api_swagger.HealthOK:
+    properties:
+      status:
+        example: ok
+        type: string
+    type: object
+  trongcon-api_api_user_v1.CreateReq:
+    properties:
+      email:
+        type: string
+      name:
+        type: string
+      password:
+        minLength: 6
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  trongcon-api_api_user_v1.CreateRes:
+    properties:
+      user:
+        $ref: '#/definitions/trongcon-api_api_user_v1.UserRes'
+    type: object
+  trongcon-api_api_user_v1.DeleteRes:
+    properties:
+      status:
+        type: string
+    type: object
+  trongcon-api_api_user_v1.GetRes:
+    properties:
+      user:
+        $ref: '#/definitions/trongcon-api_api_user_v1.UserRes'
+    type: object
+  trongcon-api_api_user_v1.ListUsersRes:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/trongcon-api_api_user_v1.UserRes'
+        type: array
+      total:
+        type: integer
+    type: object
+  trongcon-api_api_user_v1.UpdateReq:
+    properties:
+      email:
+        type: string
+      name:
+        type: string
+    type: object
+  trongcon-api_api_user_v1.UpdateRes:
+    properties:
+      user:
+        $ref: '#/definitions/trongcon-api_api_user_v1.UserRes'
+    type: object
+  trongcon-api_api_user_v1.UserRes:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      updated_at:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: support@example.com
+    name: TrongCon
+    url: https://github.com
+  description: 'REST API: health, admin CRUD; route user (auth) dự phòng. Swagger:
+    /swagger/index.html'
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: http://swagger.io/terms/
+  title: TrongCon API
+  version: "1.0"
+paths:
+  /admin/users:
+    get:
+      parameters:
+      - default: 1
+        description: Trang
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: Số bản ghi
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/trongcon-api_api_user_v1.ListUsersRes'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/trongcon-api_api_swagger.ErrBody'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/trongcon-api_api_swagger.ErrBody'
+      summary: Danh sách user (phân trang)
+      tags:
+      - admin-users
+    post:
+      consumes:
+      - application/json
+      description: Tạo user mới (mật khẩu được hash bcrypt).
+      parameters:
+      - description: Payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/trongcon-api_api_user_v1.CreateReq'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/trongcon-api_api_user_v1.CreateRes'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/trongcon-api_api_swagger.ErrBody'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/trongcon-api_api_swagger.ErrBody'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/trongcon-api_api_swagger.ErrBody'
+      summary: Tạo user
+      tags:
+      - admin-users
+  /admin/users/{id}:
+    delete:
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/trongcon-api_api_user_v1.DeleteRes'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/trongcon-api_api_swagger.ErrBody'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/trongcon-api_api_swagger.ErrBody'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/trongcon-api_api_swagger.ErrBody'
+      summary: Xóa user (soft delete)
+      tags:
+      - admin-users
+    get:
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/trongcon-api_api_user_v1.GetRes'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/trongcon-api_api_swagger.ErrBody'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/trongcon-api_api_swagger.ErrBody'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/trongcon-api_api_swagger.ErrBody'
+      summary: Lấy user theo ID
+      tags:
+      - admin-users
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/trongcon-api_api_user_v1.UpdateReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/trongcon-api_api_user_v1.UpdateRes'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/trongcon-api_api_swagger.ErrBody'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/trongcon-api_api_swagger.ErrBody'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/trongcon-api_api_swagger.ErrBody'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/trongcon-api_api_swagger.ErrBody'
+      summary: Cập nhật user
+      tags:
+      - admin-users
+  /health:
+    get:
+      description: Kiểm tra API còn sống.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/trongcon-api_api_swagger.HealthOK'
+      summary: Health check
+      tags:
+      - health
+schemes:
+- http
+swagger: "2.0"
