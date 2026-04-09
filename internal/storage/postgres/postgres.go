@@ -59,6 +59,7 @@ func autoMigrate(db *gorm.DB) error {
 		&entity.Category{},
 		&entity.Article{},
 		&entity.Equipment{},
+		&entity.Muscle{},
 	)
 }
 

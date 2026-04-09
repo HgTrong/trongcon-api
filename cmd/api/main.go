@@ -26,6 +26,7 @@ import (
 	authctl "trongcon-api/internal/controller/auth"
 	categoryctl "trongcon-api/internal/controller/category"
 	equipmentctl "trongcon-api/internal/controller/equipment"
+	musclectl "trongcon-api/internal/controller/muscle"
 	uploadctl "trongcon-api/internal/controller/upload"
 	userctl "trongcon-api/internal/controller/user"
 	httpserver "trongcon-api/internal/http"
@@ -45,11 +46,13 @@ func main() {
 	categoryRepo := repository.NewCategoryRepository(db.Connection)
 	articleRepo := repository.NewArticleRepository(db.Connection)
 	equipmentRepo := repository.NewEquipmentRepository(db.Connection)
+	muscleRepo := repository.NewMuscleRepository(db.Connection)
 
 	userSvc := service.NewUserService(userRepo, roleRepo)
 	categorySvc := service.NewCategoryService(categoryRepo)
 	articleSvc := service.NewArticleService(articleRepo, categoryRepo, userRepo)
 	equipmentSvc := service.NewEquipmentService(equipmentRepo)
+	muscleSvc := service.NewMuscleService(muscleRepo)
 	uploadSvc := service.NewUploadService(cfg.S3)
 
 	authSvc := service.NewAuthService(userRepo, roleRepo, cfg.JWTSecret, cfg.JWTExpiration)
@@ -59,6 +62,7 @@ func main() {
 	categoryController := categoryctl.NewController(categorySvc)
 	articleController := articlectl.NewController(articleSvc)
 	equipmentController := equipmentctl.NewController(equipmentSvc)
+	muscleController := musclectl.NewController(muscleSvc)
 	uploadController := uploadctl.NewController(uploadSvc)
 
 	router := httpserver.NewRouter(cfg, authController, adminrouter.Controllers{
@@ -66,6 +70,7 @@ func main() {
 		Category: categoryController,
 		Article:  articleController,
 		Equipment: equipmentController,
+		Muscle:   muscleController,
 		Upload:   uploadController,
 	})
 
