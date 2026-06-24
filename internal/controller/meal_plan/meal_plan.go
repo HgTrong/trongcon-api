@@ -1,27 +1,27 @@
-package user
+package meal_plan
 
 import (
 	"errors"
 	"net/http"
 	"strconv"
 
+	mealplanv1 "trongcon-api/api/meal_plan/v1"
 	"trongcon-api/api/swagger"
-	v1 "trongcon-api/api/user/v1"
 	"trongcon-api/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
 type Controller struct {
-	svc service.UserService
+	svc service.MealPlanService
 }
 
-func NewController(svc service.UserService) *Controller {
+func NewController(svc service.MealPlanService) *Controller {
 	return &Controller{svc: svc}
 }
 
 func (c *Controller) Create(ctx *gin.Context) {
-	var req v1.CreateReq
+	var req mealplanv1.CreateReq
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: err.Error()})
 		return
@@ -35,7 +35,7 @@ func (c *Controller) Create(ctx *gin.Context) {
 }
 
 func (c *Controller) List(ctx *gin.Context) {
-	var req v1.ListUsersReq
+	var req mealplanv1.ListReq
 	if err := ctx.ShouldBindQuery(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: err.Error()})
 		return
@@ -68,7 +68,7 @@ func (c *Controller) Update(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: "invalid id"})
 		return
 	}
-	var req v1.UpdateReq
+	var req mealplanv1.UpdateReq
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: err.Error()})
 		return
@@ -91,7 +91,7 @@ func (c *Controller) Delete(ctx *gin.Context) {
 		writeErr(ctx, err)
 		return
 	}
-	ctx.JSON(http.StatusOK, v1.DeleteRes{Status: "ok"})
+	ctx.JSON(http.StatusOK, mealplanv1.DeleteRes{Status: "ok"})
 }
 
 func parseUintParam(ctx *gin.Context, name string) (uint, error) {
@@ -108,12 +108,12 @@ func parseUintParam(ctx *gin.Context, name string) (uint, error) {
 
 func writeErr(ctx *gin.Context, err error) {
 	switch {
-	case errors.Is(err, service.ErrEmailExists):
-		ctx.JSON(http.StatusConflict, swagger.ErrBody{Error: err.Error()})
+	case errors.Is(err, service.ErrMealPlanNotFound):
+		ctx.JSON(http.StatusNotFound, swagger.ErrBody{Error: err.Error()})
+	case errors.Is(err, service.ErrFoodNotFound):
+		ctx.JSON(http.StatusNotFound, swagger.ErrBody{Error: err.Error()})
 	case errors.Is(err, service.ErrUserNotFound):
 		ctx.JSON(http.StatusNotFound, swagger.ErrBody{Error: err.Error()})
-	case errors.Is(err, service.ErrInvalidPayload):
-		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: err.Error()})
 	default:
 		ctx.JSON(http.StatusInternalServerError, swagger.ErrBody{Error: err.Error()})
 	}

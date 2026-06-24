@@ -11,18 +11,14 @@ go mod tidy
 go run ./cmd/api
 ```
 
-## Swagger UI
+## Swagger UI (runtime)
 
 Sau khi server chạy, mở trình duyệt:
 
-- **Swagger UI:** `http://localhost:8080/swagger/index.html`
-- **JSON:** `http://localhost:8080/swagger/doc.json`
+- **Swagger UI:** `http://localhost:8080/swagger`
+- **JSON:** `http://localhost:8080/api.json`
 
-Khi đổi comment `@Summary`, struct API hoặc thêm handler, sinh lại tài liệu:
-
-```bash
-go run github.com/swaggo/swag/cmd/swag@latest init -g cmd/api/main.go -o docs --parseDependency --parseInternal
-```
+OpenAPI được tạo runtime từ route đã register, nên thêm route mới sẽ tự xuất hiện trong Swagger mà không cần generate docs.
 
 ## Endpoint gợi ý
 

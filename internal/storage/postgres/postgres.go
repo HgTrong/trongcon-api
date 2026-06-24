@@ -59,7 +59,17 @@ func autoMigrate(db *gorm.DB) error {
 		&entity.Category{},
 		&entity.Article{},
 		&entity.Equipment{},
+		&entity.Exercise{},
+		&entity.ExerciseStep{},
+		&entity.ExerciseMuscle{},
+		&entity.Food{},
 		&entity.Muscle{},
+		&entity.MealPlan{},
+		&entity.MealPlanItem{},
+		&entity.Routine{},
+		&entity.RoutineWorkout{},
+		&entity.Workout{},
+		&entity.WorkoutItem{},
 	)
 }
 
