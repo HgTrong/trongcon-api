@@ -53,7 +53,10 @@ func dbConnect() *gorm.DB {
 }
 
 func autoMigrate(db *gorm.DB) error {
-	return db.AutoMigrate(
+	if err := patchLegacySchema(db); err != nil {
+		return err
+	}
+	if err := db.AutoMigrate(
 		&entity.Role{},
 		&entity.User{},
 		&entity.Category{},
@@ -65,12 +68,63 @@ func autoMigrate(db *gorm.DB) error {
 		&entity.Food{},
 		&entity.Muscle{},
 		&entity.MealPlan{},
+		&entity.MealPlanMeal{},
 		&entity.MealPlanItem{},
 		&entity.Routine{},
 		&entity.RoutineWorkout{},
 		&entity.Workout{},
 		&entity.WorkoutItem{},
-	)
+		&entity.UserSavedWorkout{},
+		&entity.UserNutritionGoal{},
+		&entity.FoodLogMeal{},
+		&entity.FoodLogEntry{},
+		&entity.WorkoutSession{},
+		&entity.WorkoutSessionItem{},
+		&entity.WorkoutSetLog{},
+		&entity.TrainingEnrollment{},
+		&entity.EnrollmentSlot{},
+		&entity.AiChatThread{},
+		&entity.AiChatMessage{},
+		&entity.GymBranch{},
+		&entity.TrainerProfile{},
+		&entity.SubscriptionPlan{},
+		&entity.UserSubscription{},
+		&entity.PaymentHistory{},
+	); err != nil {
+		return err
+	}
+	if err := migrateFoodLogMeals(db); err != nil {
+		return err
+	}
+	if err := migrateMealPlanMeals(db); err != nil {
+		return err
+	}
+	if err := backfillWorkoutUserID(db); err != nil {
+		return err
+	}
+	return patchFoodEggServings(db)
+}
+
+// backfillWorkoutUserID copies owner_user_id → user_id for personal workouts
+// created before the explicit poster field existed.
+func backfillWorkoutUserID(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&entity.Workout{}) || !db.Migrator().HasColumn(&entity.Workout{}, "user_id") {
+		return nil
+	}
+	res := db.Exec(`
+		UPDATE workouts
+		SET user_id = owner_user_id
+		WHERE (user_id IS NULL OR user_id = 0)
+		  AND owner_user_id IS NOT NULL
+		  AND owner_user_id > 0
+	`)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected > 0 {
+		log.Printf("migrate: backfilled user_id on %d workout(s) from owner_user_id", res.RowsAffected)
+	}
+	return nil
 }
 
 func getDSN() string {

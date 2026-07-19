@@ -24,7 +24,8 @@ type UpdateReq struct {
 	LastName    string `json:"last_name"`
 	Gender      string `json:"gender"`
 	Language    string `json:"language"`
-	AccountType string `json:"account_type"`
+	AccountType    string  `json:"account_type"`
+	ProfilePicture *string `json:"profile_picture"`
 }
 
 type UpdateRes struct {
@@ -60,9 +61,10 @@ type UserRes struct {
 	Gender      string     `json:"gender"`
 	Language    string     `json:"language"`
 	MemberSince time.Time  `json:"member_since"`
-	LastLogin   *time.Time `json:"last_login,omitempty"`
-	AccountType string     `json:"account_type"`
-	Roles       []string   `json:"roles,omitempty"`
+	LastLogin      *time.Time `json:"last_login,omitempty"`
+	AccountType    string     `json:"account_type"`
+	ProfilePicture string     `json:"profile_picture,omitempty"`
+	Roles          []string   `json:"roles,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 }

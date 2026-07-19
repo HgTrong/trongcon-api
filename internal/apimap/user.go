@@ -24,8 +24,9 @@ func UserToRes(u *entity.User) userv1.UserRes {
 		Language:    u.Language,
 		MemberSince: u.CreatedAt,
 		LastLogin:   u.LastLoginAt,
-		AccountType: u.AccountType,
-		Roles:       RoleNames(u),
+		AccountType:    u.AccountType,
+		ProfilePicture: u.ProfilePicture,
+		Roles:          RoleNames(u),
 		CreatedAt:   u.CreatedAt,
 		UpdatedAt:   u.UpdatedAt,
 	}

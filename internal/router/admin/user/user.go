@@ -13,6 +13,7 @@ func Register(g *gin.RouterGroup, c *userctl.Controller) {
 		users.GET("", c.List)
 		users.GET("/:id", c.GetByID)
 		users.PUT("/:id", c.Update)
+		users.PUT("/:id/avatar", c.UpdateUserAvatar)
 		users.DELETE("/:id", c.Delete)
 	}
 }

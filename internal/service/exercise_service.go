@@ -20,9 +20,13 @@ var ErrExerciseNotFound = errors.New("exercise not found")
 type ExerciseService interface {
 	Create(ctx context.Context, req *exercisev1.CreateReq) (*exercisev1.CreateRes, error)
 	GetByID(ctx context.Context, id uint) (*exercisev1.GetRes, error)
+	GetByIDPublic(ctx context.Context, id uint) (*exercisev1.GetRes, error)
+	GetBySlug(ctx context.Context, slug string) (*exercisev1.GetRes, error)
+	IncrementViews(ctx context.Context, slug string) (*exercisev1.IncrementViewsRes, error)
 	Update(ctx context.Context, id uint, req *exercisev1.UpdateReq) (*exercisev1.UpdateRes, error)
 	Delete(ctx context.Context, id uint) error
 	List(ctx context.Context, req *exercisev1.ListReq) (*exercisev1.ListRes, error)
+	ListPublic(ctx context.Context, req *exercisev1.ListReq) (*exercisev1.ListRes, error)
 }
 
 type exerciseService struct {
@@ -204,8 +208,8 @@ func (s *exerciseService) Create(ctx context.Context, req *exercisev1.CreateReq)
 		Force:       req.Force,
 		Grips:       req.Grips,
 		Mechanic:    req.Mechanic,
-		DemoGif1:    req.DemoGif1,
-		DemoGif2:    req.DemoGif2,
+		DemoVideo1:    req.DemoVideo1,
+		DemoVideo2:    req.DemoVideo2,
 		VideoURL:    req.VideoURL,
 		Thumbnail:   req.Thumbnail,
 		Content:     req.Content,
@@ -238,6 +242,63 @@ func (s *exerciseService) GetByID(ctx context.Context, id uint) (*exercisev1.Get
 		return nil, err
 	}
 	return &exercisev1.GetRes{Exercise: apimap.ExerciseToRes(ex)}, nil
+}
+
+func (s *exerciseService) GetByIDPublic(ctx context.Context, id uint) (*exercisev1.GetRes, error) {
+	ex, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrExerciseNotFound
+		}
+		return nil, err
+	}
+	if ex.Status != "active" {
+		return nil, ErrExerciseNotFound
+	}
+	return &exercisev1.GetRes{Exercise: apimap.ExerciseToRes(ex)}, nil
+}
+
+func (s *exerciseService) GetBySlug(ctx context.Context, slug string) (*exercisev1.GetRes, error) {
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return nil, ErrExerciseNotFound
+	}
+	ex, err := s.repo.GetBySlug(ctx, slug)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrExerciseNotFound
+		}
+		return nil, err
+	}
+	if ex.Status != "active" {
+		return nil, ErrExerciseNotFound
+	}
+	return &exercisev1.GetRes{Exercise: apimap.ExerciseToRes(ex)}, nil
+}
+
+func (s *exerciseService) IncrementViews(ctx context.Context, slug string) (*exercisev1.IncrementViewsRes, error) {
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return nil, ErrExerciseNotFound
+	}
+	ex, err := s.repo.GetBySlug(ctx, slug)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrExerciseNotFound
+		}
+		return nil, err
+	}
+	if ex.Status != "active" {
+		return nil, ErrExerciseNotFound
+	}
+	views, err := s.repo.IncrementViews(ctx, ex.ID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrExerciseNotFound
+		}
+		return nil, err
+	}
+	return &exercisev1.IncrementViewsRes{Status: "ok", Views: views}, nil
 }
 
 func (s *exerciseService) Update(ctx context.Context, id uint, req *exercisev1.UpdateReq) (*exercisev1.UpdateRes, error) {
@@ -277,11 +338,11 @@ func (s *exerciseService) Update(ctx context.Context, id uint, req *exercisev1.U
 	if req.Mechanic != nil {
 		ex.Mechanic = *req.Mechanic
 	}
-	if req.DemoGif1 != nil {
-		ex.DemoGif1 = *req.DemoGif1
+	if req.DemoVideo1 != nil {
+		ex.DemoVideo1 = *req.DemoVideo1
 	}
-	if req.DemoGif2 != nil {
-		ex.DemoGif2 = *req.DemoGif2
+	if req.DemoVideo2 != nil {
+		ex.DemoVideo2 = *req.DemoVideo2
 	}
 	if req.VideoURL != nil {
 		ex.VideoURL = *req.VideoURL
@@ -358,7 +419,7 @@ func (s *exerciseService) List(ctx context.Context, req *exercisev1.ListReq) (*e
 		orderBy = "id"
 	}
 	switch orderBy {
-	case "id", "name", "created_at", "difficulty":
+	case "id", "name", "created_at", "difficulty", "views":
 	default:
 		orderBy = "id"
 	}
@@ -389,4 +450,12 @@ func (s *exerciseService) List(ctx context.Context, req *exercisev1.ListReq) (*e
 		data = append(data, apimap.ExerciseToRes(&list[i]))
 	}
 	return &exercisev1.ListRes{Total: total, Data: data}, nil
+}
+
+func (s *exerciseService) ListPublic(ctx context.Context, req *exercisev1.ListReq) (*exercisev1.ListRes, error) {
+	if req == nil {
+		req = &exercisev1.ListReq{}
+	}
+	req.Status = "active"
+	return s.List(ctx, req)
 }

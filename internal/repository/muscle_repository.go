@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"trongcon-api/internal/entity"
 
@@ -14,7 +15,8 @@ type MuscleRepository interface {
 	GetByID(ctx context.Context, id uint) (*entity.Muscle, error)
 	Update(ctx context.Context, m *entity.Muscle) error
 	Delete(ctx context.Context, id uint) error
-	List(ctx context.Context, offset, limit int, order string) ([]entity.Muscle, int64, error)
+	List(ctx context.Context, offset, limit int, order, region string) ([]entity.Muscle, int64, error)
+	SlugExists(ctx context.Context, slug string, excludeID uint) (bool, error)
 }
 
 type muscleRepository struct {
@@ -48,17 +50,36 @@ func (r *muscleRepository) Delete(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).Delete(&entity.Muscle{}, id).Error
 }
 
-func (r *muscleRepository) List(ctx context.Context, offset, limit int, order string) ([]entity.Muscle, int64, error) {
+func (r *muscleRepository) List(ctx context.Context, offset, limit int, order, region string) ([]entity.Muscle, int64, error) {
+	query := r.db.WithContext(ctx).Model(&entity.Muscle{})
+	if region != "" {
+		query = query.Where("region = ?", region)
+	}
+
 	var total int64
-	if err := r.db.WithContext(ctx).Model(&entity.Muscle{}).Count(&total).Error; err != nil {
+	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	var list []entity.Muscle
 	if order == "" {
 		order = "id DESC"
 	}
-	if err := r.db.WithContext(ctx).Order(order).Offset(offset).Limit(limit).Find(&list).Error; err != nil {
+	order = strings.TrimSpace(order)
+
+	var list []entity.Muscle
+	if err := query.Order(order).Offset(offset).Limit(limit).Find(&list).Error; err != nil {
 		return nil, 0, err
 	}
 	return list, total, nil
+}
+
+func (r *muscleRepository) SlugExists(ctx context.Context, slug string, excludeID uint) (bool, error) {
+	var count int64
+	q := r.db.WithContext(ctx).Model(&entity.Muscle{}).Where("slug = ?", slug)
+	if excludeID > 0 {
+		q = q.Where("id <> ?", excludeID)
+	}
+	if err := q.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }

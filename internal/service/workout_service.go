@@ -25,10 +25,17 @@ type WorkoutService interface {
 type workoutService struct {
 	repo         repository.WorkoutRepository
 	exerciseRepo repository.ExerciseRepository
+	userRepo     repository.UserRepository
+	trainerRepo  repository.TrainerProfileRepository
 }
 
-func NewWorkoutService(repo repository.WorkoutRepository, exerciseRepo repository.ExerciseRepository) WorkoutService {
-	return &workoutService{repo: repo, exerciseRepo: exerciseRepo}
+func NewWorkoutService(
+	repo repository.WorkoutRepository,
+	exerciseRepo repository.ExerciseRepository,
+	userRepo repository.UserRepository,
+	trainerRepo repository.TrainerProfileRepository,
+) WorkoutService {
+	return &workoutService{repo: repo, exerciseRepo: exerciseRepo, userRepo: userRepo, trainerRepo: trainerRepo}
 }
 
 func normalizeSets(v int) int {
@@ -69,12 +76,20 @@ func buildWorkoutItemsFromInput(ctx context.Context, inputs []workoutv1.WorkoutI
 
 func toWorkoutAPIRes(w *entity.Workout) workoutv1.WorkoutRes {
 	res := workoutv1.WorkoutRes{
-		ID:         w.ID,
-		Title:      w.Title,
-		Difficulty: w.Difficulty,
-		CreatedAt:  w.CreatedAt,
-		UpdatedAt:  w.UpdatedAt,
-		Items:      make([]workoutv1.WorkoutItemRes, 0, len(w.Items)),
+		ID:          w.ID,
+		Title:       w.Title,
+		Difficulty:  w.Difficulty,
+		Goal:        w.Goal,
+		ImageURL:    w.ImageURL,
+		UserID:      w.UserID,
+		OwnerUserID: w.OwnerUserID,
+		IsPublic:    w.IsPublic,
+		CreatedAt:   w.CreatedAt,
+		UpdatedAt:   w.UpdatedAt,
+		Items:       make([]workoutv1.WorkoutItemRes, 0, len(w.Items)),
+	}
+	if w.User.ID > 0 {
+		res.UserEmail = w.User.Email
 	}
 	for _, it := range w.Items {
 		res.Items = append(res.Items, workoutv1.WorkoutItemRes{
@@ -93,15 +108,31 @@ func toWorkoutAPIRes(w *entity.Workout) workoutv1.WorkoutRes {
 	return res
 }
 
+func (s *workoutService) withAuthor(ctx context.Context, w *entity.Workout, res workoutv1.WorkoutRes) workoutv1.WorkoutRes {
+	res.Author = authorForUserID(ctx, s.trainerRepo, s.userRepo, workoutAuthorID(w))
+	return res
+}
+
 func (s *workoutService) Create(ctx context.Context, req *workoutv1.CreateReq) (*workoutv1.CreateRes, error) {
+	if _, err := s.userRepo.GetByID(ctx, req.UserID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrUserNotFound
+		}
+		return nil, err
+	}
 	items, err := buildWorkoutItemsFromInput(ctx, req.Items, s.exerciseRepo)
 	if err != nil {
 		return nil, err
 	}
 
+	// Admin create = catalog (OwnerUserID nil). UserID is the posted-by author.
 	w := &entity.Workout{
 		Title:      strings.TrimSpace(req.Title),
 		Difficulty: req.Difficulty,
+		Goal:       req.Goal,
+		ImageURL:   strings.TrimSpace(req.ImageURL),
+		UserID:     req.UserID,
+		IsPublic:   req.IsPublic,
 		Items:      items,
 	}
 	if err := s.repo.Create(ctx, w); err != nil {
@@ -112,7 +143,7 @@ func (s *workoutService) Create(ctx context.Context, req *workoutv1.CreateReq) (
 	if err != nil {
 		return nil, err
 	}
-	return &workoutv1.CreateRes{Workout: toWorkoutAPIRes(fresh)}, nil
+	return &workoutv1.CreateRes{Workout: s.withAuthor(ctx, fresh, toWorkoutAPIRes(fresh))}, nil
 }
 
 func (s *workoutService) GetByID(ctx context.Context, id uint) (*workoutv1.GetRes, error) {
@@ -123,7 +154,11 @@ func (s *workoutService) GetByID(ctx context.Context, id uint) (*workoutv1.GetRe
 		}
 		return nil, err
 	}
-	return &workoutv1.GetRes{Workout: toWorkoutAPIRes(w)}, nil
+	// Public/admin Get exposes catalog workouts (owner null) or published PT ones.
+	if w.OwnerUserID != nil && !w.IsPublic {
+		return nil, ErrWorkoutNotFound
+	}
+	return &workoutv1.GetRes{Workout: s.withAuthor(ctx, w, toWorkoutAPIRes(w))}, nil
 }
 
 func (s *workoutService) Update(ctx context.Context, id uint, req *workoutv1.UpdateReq) (*workoutv1.UpdateRes, error) {
@@ -134,12 +169,33 @@ func (s *workoutService) Update(ctx context.Context, id uint, req *workoutv1.Upd
 		}
 		return nil, err
 	}
+	if w.OwnerUserID != nil {
+		return nil, ErrWorkoutNotFound
+	}
 
 	if req.Title != nil && strings.TrimSpace(*req.Title) != "" {
 		w.Title = strings.TrimSpace(*req.Title)
 	}
 	if req.Difficulty != nil {
 		w.Difficulty = *req.Difficulty
+	}
+	if req.Goal != nil {
+		w.Goal = *req.Goal
+	}
+	if req.ImageURL != nil {
+		w.ImageURL = strings.TrimSpace(*req.ImageURL)
+	}
+	if req.UserID != nil {
+		if _, err := s.userRepo.GetByID(ctx, *req.UserID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, ErrUserNotFound
+			}
+			return nil, err
+		}
+		w.UserID = *req.UserID
+	}
+	if req.IsPublic != nil {
+		w.IsPublic = *req.IsPublic
 	}
 	if err := s.repo.Update(ctx, w); err != nil {
 		return nil, err
@@ -159,15 +215,19 @@ func (s *workoutService) Update(ctx context.Context, id uint, req *workoutv1.Upd
 	if err != nil {
 		return nil, err
 	}
-	return &workoutv1.UpdateRes{Workout: toWorkoutAPIRes(fresh)}, nil
+	return &workoutv1.UpdateRes{Workout: s.withAuthor(ctx, fresh, toWorkoutAPIRes(fresh))}, nil
 }
 
 func (s *workoutService) Delete(ctx context.Context, id uint) error {
-	if _, err := s.repo.GetByID(ctx, id); err != nil {
+	w, err := s.repo.GetByID(ctx, id)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrWorkoutNotFound
 		}
 		return err
+	}
+	if w.OwnerUserID != nil {
+		return ErrWorkoutNotFound
 	}
 	return s.repo.Delete(ctx, id)
 }
@@ -190,7 +250,7 @@ func (s *workoutService) List(ctx context.Context, req *workoutv1.ListReq) (*wor
 		orderBy = "id"
 	}
 	switch orderBy {
-	case "id", "title", "created_at", "difficulty":
+	case "id", "title", "created_at", "difficulty", "goal":
 	default:
 		orderBy = "id"
 	}
@@ -200,13 +260,13 @@ func (s *workoutService) List(ctx context.Context, req *workoutv1.ListReq) (*wor
 	}
 	order := orderBy + " " + dir
 
-	list, total, err := s.repo.List(ctx, offset, limit, order, strings.TrimSpace(req.Q), strings.TrimSpace(req.Difficulty))
+	list, total, err := s.repo.ListCatalog(ctx, offset, limit, order, strings.TrimSpace(req.Q), strings.TrimSpace(req.Difficulty), strings.TrimSpace(req.Goal))
 	if err != nil {
 		return nil, err
 	}
 	data := make([]workoutv1.WorkoutRes, 0, len(list))
 	for i := range list {
-		data = append(data, toWorkoutAPIRes(&list[i]))
+		data = append(data, s.withAuthor(ctx, &list[i], toWorkoutAPIRes(&list[i])))
 	}
 	return &workoutv1.ListRes{Total: total, Data: data}, nil
 }

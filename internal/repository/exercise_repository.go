@@ -12,8 +12,10 @@ import (
 type ExerciseRepository interface {
 	Create(ctx context.Context, ex *entity.Exercise) error
 	GetByID(ctx context.Context, id uint) (*entity.Exercise, error)
+	GetBySlug(ctx context.Context, slug string) (*entity.Exercise, error)
 	Update(ctx context.Context, ex *entity.Exercise) error
 	Delete(ctx context.Context, id uint) error
+	IncrementViews(ctx context.Context, id uint) (int, error)
 	List(ctx context.Context, offset, limit int, order, q, difficulty, force, mechanic, status string, equipmentID, muscleID *uint) ([]entity.Exercise, int64, error)
 	SlugExists(ctx context.Context, slug string, excludeID uint) (bool, error)
 	ReplaceSteps(ctx context.Context, exerciseID uint, steps []entity.ExerciseStep) error
@@ -44,8 +46,32 @@ func (r *exerciseRepository) GetByID(ctx context.Context, id uint) (*entity.Exer
 	return &ex, nil
 }
 
+func (r *exerciseRepository) GetBySlug(ctx context.Context, slug string) (*entity.Exercise, error) {
+	var ex entity.Exercise
+	if err := r.preload(r.db.WithContext(ctx)).Where("slug = ?", slug).First(&ex).Error; err != nil {
+		return nil, err
+	}
+	return &ex, nil
+}
+
 func (r *exerciseRepository) Update(ctx context.Context, ex *entity.Exercise) error {
 	return r.db.WithContext(ctx).Save(ex).Error
+}
+
+func (r *exerciseRepository) IncrementViews(ctx context.Context, id uint) (int, error) {
+	res := r.db.WithContext(ctx).Model(&entity.Exercise{}).Where("id = ?", id).
+		UpdateColumn("views", gorm.Expr("views + 1"))
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return 0, gorm.ErrRecordNotFound
+	}
+	var views int
+	if err := r.db.WithContext(ctx).Model(&entity.Exercise{}).Where("id = ?", id).Select("views").Scan(&views).Error; err != nil {
+		return 0, err
+	}
+	return views, nil
 }
 
 func (r *exerciseRepository) Delete(ctx context.Context, id uint) error {

@@ -23,6 +23,8 @@ var allowedFolders = map[string]struct{}{
 	"articles":   {},
 	"videos":     {},
 	"exercises":  {},
+	"routines":   {},
+	"workouts":   {},
 	"common":     {},
 }
 
@@ -40,6 +42,10 @@ func mapFolderToStrongbodyBasePath(folder string) string {
 		return "public/posts"
 	case "exercises":
 		return "public/exercises"
+	case "routines":
+		return "public/routines"
+	case "workouts":
+		return "public/workouts"
 	case "common":
 		return "public/common"
 	default:
@@ -65,7 +71,7 @@ func NewController(svc *service.UploadService) *Controller {
 func (c *Controller) Upload(ctx *gin.Context) {
 	folder := strings.TrimSpace(ctx.DefaultQuery("folder", "common"))
 	if _, ok := allowedFolders[folder]; !ok {
-		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: "invalid folder: use categories, articles, videos, exercises, or common"})
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: "invalid folder: use categories, articles, videos, exercises, routines, workouts, or common"})
 		return
 	}
 	maxB := maxBytesForFolder(folder)

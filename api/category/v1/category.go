@@ -33,6 +33,8 @@ type GetRes struct {
 type ListReq struct {
 	Page     int    `form:"page"`
 	Limit    int    `form:"limit"`
+	Status   string `form:"status"`
+	Type     string `form:"type"`
 	OrderBy  string `form:"order_by"`
 	OrderDir string `form:"order_dir"`
 }

@@ -13,8 +13,8 @@ type CreateReq struct {
 	Force              string      `json:"force" binding:"required,oneof=pull push static"`
 	Grips              string      `json:"grips" binding:"required,oneof=overhand underhand neutral mixed"`
 	Mechanic           string      `json:"mechanic" binding:"required,oneof=compound isolation"`
-	DemoGif1           string      `json:"demo_gif_1"`
-	DemoGif2           string      `json:"demo_gif_2"`
+	DemoVideo1         string      `json:"demo_video_1"`
+	DemoVideo2         string      `json:"demo_video_2"`
 	VideoURL           string      `json:"video_url"`
 	Thumbnail          string      `json:"thumbnail"`
 	Content            string      `json:"content"`
@@ -37,8 +37,8 @@ type UpdateReq struct {
 	Force              *string      `json:"force" binding:"omitempty,oneof=pull push static"`
 	Grips              *string      `json:"grips" binding:"omitempty,oneof=overhand underhand neutral mixed"`
 	Mechanic           *string      `json:"mechanic" binding:"omitempty,oneof=compound isolation"`
-	DemoGif1           *string      `json:"demo_gif_1"`
-	DemoGif2           *string      `json:"demo_gif_2"`
+	DemoVideo1           *string      `json:"demo_video_1"`
+	DemoVideo2           *string      `json:"demo_video_2"`
 	VideoURL           *string      `json:"video_url"`
 	Thumbnail          *string      `json:"thumbnail"`
 	Content            *string      `json:"content"`
@@ -81,6 +81,11 @@ type DeleteRes struct {
 	Status string `json:"status"`
 }
 
+type IncrementViewsRes struct {
+	Status string `json:"status"`
+	Views  int    `json:"views"`
+}
+
 type ExerciseStepRes struct {
 	ID        uint      `json:"id"`
 	SortOrder int       `json:"sort_order"`
@@ -104,12 +109,13 @@ type ExerciseRes struct {
 	Force              string              `json:"force"`
 	Grips              string              `json:"grips"`
 	Mechanic           string              `json:"mechanic"`
-	DemoGif1           string              `json:"demo_gif_1"`
-	DemoGif2           string              `json:"demo_gif_2"`
+	DemoVideo1           string              `json:"demo_video_1"`
+	DemoVideo2           string              `json:"demo_video_2"`
 	VideoURL           string              `json:"video_url"`
 	Thumbnail          string              `json:"thumbnail"`
 	Content            string              `json:"content"`
 	Status             string              `json:"status"`
+	Views              int                 `json:"views"`
 	EquipmentID        *uint               `json:"equipment_id,omitempty"`
 	EquipmentName      string              `json:"equipment_name,omitempty"`
 	Steps              []ExerciseStepRes   `json:"steps"`

@@ -50,7 +50,7 @@ func (r *routineRepository) GetByID(ctx context.Context, id uint) (*entity.Routi
 }
 
 func (r *routineRepository) Update(ctx context.Context, rt *entity.Routine) error {
-	return r.db.WithContext(ctx).Save(rt).Error
+	return r.db.WithContext(ctx).Omit("User").Save(rt).Error
 }
 
 func (r *routineRepository) Delete(ctx context.Context, id uint) error {

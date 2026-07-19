@@ -1,6 +1,10 @@
 package v1
 
-import "time"
+import (
+	"time"
+
+	authorv1 "trongcon-api/api/author/v1"
+)
 
 type WorkoutItemInput struct {
 	ExerciseID uint   `json:"exercise_id" binding:"required"`
@@ -11,6 +15,10 @@ type WorkoutItemInput struct {
 type CreateReq struct {
 	Title      string             `json:"title" binding:"required,min=1,max=200"`
 	Difficulty string             `json:"difficulty" binding:"required,oneof=novice intermediate advanced"`
+	Goal       string             `json:"goal" binding:"required,oneof=gain_muscle gain_strength lose_weight"`
+	ImageURL   string             `json:"image_url"`
+	UserID     uint               `json:"user_id" binding:"required"`
+	IsPublic   bool               `json:"is_public"`
 	Items      []WorkoutItemInput `json:"items"`
 }
 
@@ -21,6 +29,10 @@ type CreateRes struct {
 type UpdateReq struct {
 	Title      *string             `json:"title" binding:"omitempty,min=1,max=200"`
 	Difficulty *string             `json:"difficulty" binding:"omitempty,oneof=novice intermediate advanced"`
+	Goal       *string             `json:"goal" binding:"omitempty,oneof=gain_muscle gain_strength lose_weight"`
+	ImageURL   *string             `json:"image_url"`
+	UserID     *uint               `json:"user_id"`
+	IsPublic   *bool               `json:"is_public"`
 	Items      *[]WorkoutItemInput `json:"items"`
 }
 
@@ -37,6 +49,7 @@ type ListReq struct {
 	Limit      int    `form:"limit"`
 	Q          string `form:"q"`
 	Difficulty string `form:"difficulty"`
+	Goal       string `form:"goal"`
 	OrderBy    string `form:"order_by"`
 	OrderDir   string `form:"order_dir"`
 }
@@ -62,12 +75,19 @@ type WorkoutItemRes struct {
 }
 
 type WorkoutRes struct {
-	ID            uint             `json:"id"`
-	Title         string           `json:"title"`
-	Difficulty    string           `json:"difficulty"`
-	Items         []WorkoutItemRes `json:"items"`
-	ExerciseCount int              `json:"exercise_count"`
-	TotalSets     int              `json:"total_sets"`
-	CreatedAt     time.Time        `json:"created_at"`
-	UpdatedAt     time.Time        `json:"updated_at"`
+	ID            uint                `json:"id"`
+	Title         string              `json:"title"`
+	Difficulty    string              `json:"difficulty"`
+	Goal          string              `json:"goal"`
+	ImageURL      string              `json:"image_url,omitempty"`
+	UserID        uint                `json:"user_id"`
+	UserEmail     string              `json:"user_email,omitempty"`
+	OwnerUserID   *uint               `json:"owner_user_id,omitempty"`
+	IsPublic      bool                `json:"is_public"`
+	Author        *authorv1.AuthorRes `json:"author,omitempty"`
+	Items         []WorkoutItemRes    `json:"items"`
+	ExerciseCount int                 `json:"exercise_count"`
+	TotalSets     int                 `json:"total_sets"`
+	CreatedAt     time.Time           `json:"created_at"`
+	UpdatedAt     time.Time           `json:"updated_at"`
 }

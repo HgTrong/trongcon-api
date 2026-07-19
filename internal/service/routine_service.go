@@ -17,19 +17,22 @@ var ErrRoutineNotFound = errors.New("routine not found")
 type RoutineService interface {
 	Create(ctx context.Context, req *routinev1.CreateReq) (*routinev1.CreateRes, error)
 	GetByID(ctx context.Context, id uint) (*routinev1.GetRes, error)
+	GetByIDPublic(ctx context.Context, id uint) (*routinev1.GetRes, error)
 	Update(ctx context.Context, id uint, req *routinev1.UpdateReq) (*routinev1.UpdateRes, error)
 	Delete(ctx context.Context, id uint) error
 	List(ctx context.Context, req *routinev1.ListReq) (*routinev1.ListRes, error)
+	ListPublic(ctx context.Context, req *routinev1.ListReq) (*routinev1.ListRes, error)
 }
 
 type routineService struct {
 	repo        repository.RoutineRepository
 	workoutRepo repository.WorkoutRepository
 	userRepo    repository.UserRepository
+	trainerRepo repository.TrainerProfileRepository
 }
 
-func NewRoutineService(repo repository.RoutineRepository, workoutRepo repository.WorkoutRepository, userRepo repository.UserRepository) RoutineService {
-	return &routineService{repo: repo, workoutRepo: workoutRepo, userRepo: userRepo}
+func NewRoutineService(repo repository.RoutineRepository, workoutRepo repository.WorkoutRepository, userRepo repository.UserRepository, trainerRepo repository.TrainerProfileRepository) RoutineService {
+	return &routineService{repo: repo, workoutRepo: workoutRepo, userRepo: userRepo, trainerRepo: trainerRepo}
 }
 
 func buildRoutineWorkouts(ctx context.Context, inputs []routinev1.RoutineItemInput, workoutRepo repository.WorkoutRepository) ([]entity.RoutineWorkout, error) {
@@ -65,6 +68,7 @@ func toRoutineWorkoutRes(rw *entity.RoutineWorkout) routinev1.RoutineWorkoutRes 
 	}
 	if rw.Workout.ID > 0 {
 		res.Difficulty = rw.Workout.Difficulty
+		res.Goal = rw.Workout.Goal
 		for _, it := range rw.Workout.Items {
 			res.Items = append(res.Items, routinev1.WorkoutItemRes{
 				ID:           it.ID,
@@ -88,6 +92,7 @@ func toRoutineRes(rt *entity.Routine) routinev1.RoutineRes {
 		ID:          rt.ID,
 		Title:       rt.Title,
 		Description: rt.Description,
+		ImageURL:    rt.ImageURL,
 		Difficulty:  rt.Difficulty,
 		UserID:      rt.UserID,
 		IsPublic:    rt.IsPublic,
@@ -119,6 +124,7 @@ func (s *routineService) Create(ctx context.Context, req *routinev1.CreateReq) (
 	rt := &entity.Routine{
 		Title:       strings.TrimSpace(req.Title),
 		Description: strings.TrimSpace(req.Description),
+		ImageURL:    strings.TrimSpace(req.ImageURL),
 		Difficulty:  req.Difficulty,
 		UserID:      req.UserID,
 		IsPublic:    req.IsPublic,
@@ -151,6 +157,22 @@ func (s *routineService) GetByID(ctx context.Context, id uint) (*routinev1.GetRe
 	return &routinev1.GetRes{Routine: toRoutineRes(rt)}, nil
 }
 
+func (s *routineService) GetByIDPublic(ctx context.Context, id uint) (*routinev1.GetRes, error) {
+	rt, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrRoutineNotFound
+		}
+		return nil, err
+	}
+	if !rt.IsPublic {
+		return nil, ErrRoutineNotFound
+	}
+	res := toRoutineRes(rt)
+	res.Author = authorForUserID(ctx, s.trainerRepo, s.userRepo, rt.UserID)
+	return &routinev1.GetRes{Routine: res}, nil
+}
+
 func (s *routineService) Update(ctx context.Context, id uint, req *routinev1.UpdateReq) (*routinev1.UpdateRes, error) {
 	rt, err := s.repo.GetByID(ctx, id)
 	if err != nil {
@@ -164,6 +186,9 @@ func (s *routineService) Update(ctx context.Context, id uint, req *routinev1.Upd
 	}
 	if req.Description != nil {
 		rt.Description = strings.TrimSpace(*req.Description)
+	}
+	if req.ImageURL != nil {
+		rt.ImageURL = strings.TrimSpace(*req.ImageURL)
 	}
 	if req.Difficulty != nil {
 		rt.Difficulty = *req.Difficulty
@@ -252,7 +277,19 @@ func (s *routineService) List(ctx context.Context, req *routinev1.ListReq) (*rou
 	}
 	data := make([]routinev1.RoutineRes, 0, len(list))
 	for i := range list {
-		data = append(data, toRoutineRes(&list[i]))
+		res := toRoutineRes(&list[i])
+		if list[i].IsPublic {
+			res.Author = authorForUserID(ctx, s.trainerRepo, s.userRepo, list[i].UserID)
+		}
+		data = append(data, res)
 	}
 	return &routinev1.ListRes{Total: total, Data: data}, nil
+}
+
+func (s *routineService) ListPublic(ctx context.Context, req *routinev1.ListReq) (*routinev1.ListRes, error) {
+	if req == nil {
+		req = &routinev1.ListReq{}
+	}
+	req.IsPublic = "true"
+	return s.List(ctx, req)
 }

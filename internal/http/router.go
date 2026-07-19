@@ -8,15 +8,24 @@ import (
 
 	"trongcon-api/internal/config"
 	authctl "trongcon-api/internal/controller/auth"
+	aictl "trongcon-api/internal/controller/ai"
+	savedctl "trongcon-api/internal/controller/saved_workout"
+	foodlogctl "trongcon-api/internal/controller/food_log"
+	mytrainctl "trongcon-api/internal/controller/my_train"
+	sessionctl "trongcon-api/internal/controller/workout_session"
+	enrollctl "trongcon-api/internal/controller/training_enrollment"
+	subctl "trongcon-api/internal/controller/user_subscription"
 	"trongcon-api/internal/http/handlers"
 	"trongcon-api/internal/http/middleware"
 	adminrouter "trongcon-api/internal/router/admin"
+	publicrouter "trongcon-api/internal/router/public"
 	userrouter "trongcon-api/internal/router/user"
+	"trongcon-api/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
-func NewRouter(cfg config.Config, authCtrl *authctl.Controller, adminCtrls adminrouter.Controllers) *gin.Engine {
+func NewRouter(cfg config.Config, deps Deps) *gin.Engine {
 	router := gin.Default()
 
 	router.Use(func(c *gin.Context) {
@@ -43,15 +52,45 @@ func NewRouter(cfg config.Config, authCtrl *authctl.Controller, adminCtrls admin
 	{
 		v1.GET("/health", handlers.HealthCheck)
 
-		userrouter.Register(v1.Group("/user"), authCtrl)
+		userrouter.Register(v1.Group("/user"), userrouter.Controllers{
+			Auth:         deps.Auth,
+			User:         deps.Admin.User,
+			Saved:        deps.Saved,
+			FoodLog:      deps.FoodLog,
+			MyTrain:      deps.MyTrain,
+			Sessions:     deps.Sessions,
+			Enrollment:   deps.Enrollment,
+			AI:           deps.AI,
+			Subscription: deps.Subscription,
+		}, cfg.JWTSecret, deps.Premium)
+
+		publicrouter.Register(v1, deps.Public, cfg.JWTSecret, deps.Premium)
+
+		if deps.Subscription != nil {
+			v1.POST("/webhooks/stripe", deps.Subscription.StripeWebhook)
+		}
 
 		admin := v1.Group("/admin")
-		admin.POST("/login", authCtrl.AdminLogin)
+		admin.POST("/login", deps.Auth.AdminLogin)
 		admin.Use(middleware.RequireSuper(cfg.JWTSecret))
-		adminrouter.Register(admin, adminCtrls)
+		adminrouter.Register(admin, deps.Admin)
 	}
 
 	return router
+}
+
+type Deps struct {
+	Auth         *authctl.Controller
+	Saved        *savedctl.Controller
+	FoodLog      *foodlogctl.Controller
+	MyTrain      *mytrainctl.Controller
+	Sessions     *sessionctl.Controller
+	Enrollment   *enrollctl.Controller
+	AI           *aictl.Controller
+	Subscription *subctl.Controller
+	Premium      service.UserSubscriptionService
+	Admin        adminrouter.Controllers
+	Public       publicrouter.Controllers
 }
 
 func registerSwaggerRoutes(router *gin.Engine, cfg config.Config) {

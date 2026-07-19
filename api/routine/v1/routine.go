@@ -1,6 +1,10 @@
 package v1
 
-import "time"
+import (
+	"time"
+
+	authorv1 "trongcon-api/api/author/v1"
+)
 
 type RoutineItemInput struct {
 	WorkoutID uint `json:"workout_id" binding:"required"`
@@ -9,6 +13,7 @@ type RoutineItemInput struct {
 type CreateReq struct {
 	Title       string             `json:"title" binding:"required,min=1,max=200"`
 	Description string             `json:"description"`
+	ImageURL    string             `json:"image_url"`
 	Difficulty  string             `json:"difficulty" binding:"required,oneof=novice intermediate advanced"`
 	UserID      uint               `json:"user_id" binding:"required"`
 	IsPublic    bool               `json:"is_public"`
@@ -22,6 +27,7 @@ type CreateRes struct {
 type UpdateReq struct {
 	Title       *string             `json:"title" binding:"omitempty,min=1,max=200"`
 	Description *string             `json:"description"`
+	ImageURL    *string             `json:"image_url"`
 	Difficulty  *string             `json:"difficulty" binding:"omitempty,oneof=novice intermediate advanced"`
 	UserID      *uint               `json:"user_id"`
 	IsPublic    *bool               `json:"is_public"`
@@ -72,6 +78,7 @@ type RoutineWorkoutRes struct {
 	WorkoutID     uint             `json:"workout_id"`
 	WorkoutTitle  string           `json:"workout_title"`
 	Difficulty    string           `json:"difficulty,omitempty"`
+	Goal          string           `json:"goal,omitempty"`
 	SortOrder     int              `json:"sort_order"`
 	ExerciseCount int              `json:"exercise_count"`
 	TotalSets     int              `json:"total_sets"`
@@ -84,10 +91,12 @@ type RoutineRes struct {
 	ID            uint                `json:"id"`
 	Title         string              `json:"title"`
 	Description   string              `json:"description"`
+	ImageURL      string              `json:"image_url,omitempty"`
 	Difficulty    string              `json:"difficulty"`
 	UserID        uint                `json:"user_id"`
 	UserEmail     string              `json:"user_email,omitempty"`
 	IsPublic      bool                `json:"is_public"`
+	Author        *authorv1.AuthorRes `json:"author,omitempty"`
 	Items         []RoutineWorkoutRes `json:"items"`
 	WorkoutCount  int                 `json:"workout_count"`
 	ExerciseCount int                 `json:"exercise_count"`

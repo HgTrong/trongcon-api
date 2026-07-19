@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"trongcon-api/internal/entity"
 
@@ -14,8 +15,9 @@ type ArticleRepository interface {
 	GetByID(ctx context.Context, id uint) (*entity.Article, error)
 	Update(ctx context.Context, a *entity.Article) error
 	Delete(ctx context.Context, id uint) error
-	List(ctx context.Context, offset, limit int, order string) ([]entity.Article, int64, error)
+	List(ctx context.Context, offset, limit int, order string, categoryID *uint, featured *bool, q string, activeCategoryOnly bool) ([]entity.Article, int64, error)
 	SlugExists(ctx context.Context, slug string, excludeID uint) (bool, error)
+	GetBySlug(ctx context.Context, slug string) (*entity.Article, error)
 }
 
 type articleRepository struct {
@@ -41,24 +43,55 @@ func (r *articleRepository) GetByID(ctx context.Context, id uint) (*entity.Artic
 	return &a, nil
 }
 
+func (r *articleRepository) GetBySlug(ctx context.Context, slug string) (*entity.Article, error) {
+	var a entity.Article
+	if err := r.db.WithContext(ctx).Preload("User").Preload("Category").Where("slug = ?", slug).First(&a).Error; err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
 func (r *articleRepository) Update(ctx context.Context, a *entity.Article) error {
-	return r.db.WithContext(ctx).Save(a).Error
+	// Omit BelongsTo associations so a changed UserID/CategoryID is not
+	// overwritten by the previously preloaded User/Category primary keys.
+	return r.db.WithContext(ctx).Omit("User", "Category").Save(a).Error
 }
 
 func (r *articleRepository) Delete(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).Delete(&entity.Article{}, id).Error
 }
 
-func (r *articleRepository) List(ctx context.Context, offset, limit int, order string) ([]entity.Article, int64, error) {
+func (r *articleRepository) List(ctx context.Context, offset, limit int, order string, categoryID *uint, featured *bool, q string, activeCategoryOnly bool) ([]entity.Article, int64, error) {
+	query := r.db.WithContext(ctx).Model(&entity.Article{})
+	if activeCategoryOnly {
+		query = query.Joins("JOIN categories ON categories.id = articles.category_id AND categories.status = ?", "active")
+	}
+	if categoryID != nil && *categoryID > 0 {
+		query = query.Where("articles.category_id = ?", *categoryID)
+	}
+	if featured != nil {
+		query = query.Where("articles.featured = ?", *featured)
+	}
+	if term := strings.TrimSpace(q); term != "" {
+		like := "%" + term + "%"
+		query = query.Where(
+			"articles.title ILIKE ? OR articles.subtitle ILIKE ? OR articles.slug ILIKE ?",
+			like, like, like,
+		)
+	}
+
 	var total int64
-	if err := r.db.WithContext(ctx).Model(&entity.Article{}).Count(&total).Error; err != nil {
+	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	var list []entity.Article
 	if order == "" {
-		order = "id DESC"
+		order = "articles.id DESC"
+	} else if !strings.Contains(order, ".") {
+		order = "articles." + order
 	}
-	if err := r.db.WithContext(ctx).Preload("User").Preload("Category").Order(order).Offset(offset).Limit(limit).Find(&list).Error; err != nil {
+
+	var list []entity.Article
+	if err := query.Preload("User").Preload("Category").Order(order).Offset(offset).Limit(limit).Find(&list).Error; err != nil {
 		return nil, 0, err
 	}
 	return list, total, nil

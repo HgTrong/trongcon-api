@@ -20,9 +20,11 @@ var ErrArticleNotFound = errors.New("article not found")
 type ArticleService interface {
 	Create(ctx context.Context, req *articlev1.CreateReq) (*articlev1.CreateRes, error)
 	GetByID(ctx context.Context, id uint) (*articlev1.GetRes, error)
+	GetBySlug(ctx context.Context, slug string) (*articlev1.GetRes, error)
 	Update(ctx context.Context, id uint, req *articlev1.UpdateReq) (*articlev1.UpdateRes, error)
 	Delete(ctx context.Context, id uint) error
 	List(ctx context.Context, req *articlev1.ListReq) (*articlev1.ListRes, error)
+	ListPublic(ctx context.Context, req *articlev1.ListReq) (*articlev1.ListRes, error)
 }
 
 type articleService struct {
@@ -90,6 +92,7 @@ func (s *articleService) Create(ctx context.Context, req *articlev1.CreateReq) (
 		Content:    req.Content,
 		UserID:     req.UserID,
 		CategoryID: req.CategoryID,
+		Featured:   req.Featured,
 	}
 	if err := s.articleRepo.Create(ctx, a); err != nil {
 		return nil, err
@@ -109,6 +112,42 @@ func (s *articleService) GetByID(ctx context.Context, id uint) (*articlev1.GetRe
 		}
 		return nil, err
 	}
+	return &articlev1.GetRes{Article: apimap.ArticleToDetail(a)}, nil
+}
+
+func (s *articleService) attachArticleAuthor(ctx context.Context, a *entity.Article) {
+	if a == nil || a.UserID == 0 {
+		return
+	}
+	u, err := s.userRepo.GetByID(ctx, a.UserID)
+	if err != nil {
+		return
+	}
+	a.User = *u
+}
+
+func (s *articleService) attachArticleAuthors(ctx context.Context, list []entity.Article) {
+	for i := range list {
+		s.attachArticleAuthor(ctx, &list[i])
+	}
+}
+
+func (s *articleService) GetBySlug(ctx context.Context, slug string) (*articlev1.GetRes, error) {
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return nil, ErrArticleNotFound
+	}
+	a, err := s.articleRepo.GetBySlug(ctx, slug)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrArticleNotFound
+		}
+		return nil, err
+	}
+	if a.Category.ID == 0 || a.Category.Status != "active" {
+		return nil, ErrArticleNotFound
+	}
+	s.attachArticleAuthor(ctx, a)
 	return &articlev1.GetRes{Article: apimap.ArticleToDetail(a)}, nil
 }
 
@@ -169,6 +208,9 @@ func (s *articleService) Update(ctx context.Context, id uint, req *articlev1.Upd
 		}
 		a.CategoryID = *req.CategoryID
 	}
+	if req.Featured != nil {
+		a.Featured = *req.Featured
+	}
 	if err := s.articleRepo.Update(ctx, a); err != nil {
 		return nil, err
 	}
@@ -217,10 +259,54 @@ func (s *articleService) List(ctx context.Context, req *articlev1.ListReq) (*art
 	}
 	order := orderBy + " " + dir
 
-	list, total, err := s.articleRepo.List(ctx, offset, limit, order)
+	list, total, err := s.articleRepo.List(ctx, offset, limit, order, req.CategoryID, req.Featured, strings.TrimSpace(req.Q), false)
 	if err != nil {
 		return nil, err
 	}
+	s.attachArticleAuthors(ctx, list)
+	data := make([]articlev1.ArticleListRes, 0, len(list))
+	for i := range list {
+		data = append(data, apimap.ArticleToList(&list[i]))
+	}
+	return &articlev1.ListRes{Total: total, Data: data}, nil
+}
+
+func (s *articleService) ListPublic(ctx context.Context, req *articlev1.ListReq) (*articlev1.ListRes, error) {
+	if req == nil {
+		req = &articlev1.ListReq{}
+	}
+	page, limit := req.Page, req.Limit
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
+
+	orderBy := strings.ToLower(strings.TrimSpace(req.OrderBy))
+	if orderBy == "" {
+		orderBy = "id"
+	}
+	switch orderBy {
+	case "id", "title", "created_at":
+	default:
+		orderBy = "id"
+	}
+	dir := strings.ToUpper(strings.TrimSpace(req.OrderDir))
+	if dir != "ASC" && dir != "DESC" {
+		dir = "DESC"
+	}
+	order := orderBy + " " + dir
+
+	list, total, err := s.articleRepo.List(ctx, offset, limit, order, req.CategoryID, req.Featured, strings.TrimSpace(req.Q), true)
+	if err != nil {
+		return nil, err
+	}
+	s.attachArticleAuthors(ctx, list)
 	data := make([]articlev1.ArticleListRes, 0, len(list))
 	for i := range list {
 		data = append(data, apimap.ArticleToList(&list[i]))

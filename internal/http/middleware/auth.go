@@ -35,7 +35,8 @@ func RequireSuper(jwtSecret string) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "super role required"})
 			return
 		}
-		c.Set("userID", claims.UserID)
+		c.Set(ContextUserID, claims.UserID)
+		c.Set(ContextRoles, claims.Roles)
 		c.Next()
 	}
 }

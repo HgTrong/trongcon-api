@@ -10,7 +10,7 @@ import (
 
 // HealthCheck godoc
 // @Summary Health check
-// @Description Kiểm tra API còn sống.
+// @Description Check whether the API is up.
 // @Tags health
 // @Produce json
 // @Success 200 {object} swagger.HealthOK

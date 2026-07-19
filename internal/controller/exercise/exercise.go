@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	exercisev1 "trongcon-api/api/exercise/v1"
 	"trongcon-api/api/swagger"
@@ -48,6 +49,48 @@ func (c *Controller) List(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
+func (c *Controller) ListPublic(ctx *gin.Context) {
+	var req exercisev1.ListReq
+	if err := ctx.ShouldBindQuery(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: err.Error()})
+		return
+	}
+	res, err := c.svc.ListPublic(ctx.Request.Context(), &req)
+	if err != nil {
+		writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, res)
+}
+
+func (c *Controller) GetBySlug(ctx *gin.Context) {
+	slug := strings.TrimSpace(ctx.Param("slug"))
+	if slug == "" {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: "invalid slug"})
+		return
+	}
+	res, err := c.svc.GetBySlug(ctx.Request.Context(), slug)
+	if err != nil {
+		writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, res)
+}
+
+func (c *Controller) IncrementViews(ctx *gin.Context) {
+	slug := strings.TrimSpace(ctx.Param("slug"))
+	if slug == "" {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: "invalid slug"})
+		return
+	}
+	res, err := c.svc.IncrementViews(ctx.Request.Context(), slug)
+	if err != nil {
+		writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, res)
+}
+
 func (c *Controller) GetByID(ctx *gin.Context) {
 	id, err := parseUintParam(ctx, "id")
 	if err != nil {
@@ -55,6 +98,20 @@ func (c *Controller) GetByID(ctx *gin.Context) {
 		return
 	}
 	res, err := c.svc.GetByID(ctx.Request.Context(), id)
+	if err != nil {
+		writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, res)
+}
+
+func (c *Controller) GetByIDPublic(ctx *gin.Context) {
+	id, err := parseUintParam(ctx, "id")
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: "invalid id"})
+		return
+	}
+	res, err := c.svc.GetByIDPublic(ctx.Request.Context(), id)
 	if err != nil {
 		writeErr(ctx, err)
 		return

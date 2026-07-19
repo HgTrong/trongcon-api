@@ -25,12 +25,40 @@ type S3Config struct {
 	PublicBaseURL   string
 }
 
+type OpenAIConfig struct {
+	APIKey      string
+	AssistantID string
+	BaseURL     string
+	Timeout     int
+	Model       string
+}
+
+type PayPalConfig struct {
+	ClientID     string
+	ClientSecret string
+	APIBase      string
+	ReturnURL    string
+	CancelURL    string
+	WebhookID    string
+	TestMode     string // "mock" skips real PayPal calls
+}
+
+type StripeConfig struct {
+	SecretKey     string
+	WebhookSecret string
+	SuccessURL    string
+	CancelURL     string
+}
+
 type Config struct {
 	Port          string
 	JWTSecret     string
 	JWTExpiration time.Duration
 	DB            DbConfig
 	S3            S3Config
+	OpenAI        OpenAIConfig
+	PayPal        PayPalConfig
+	Stripe        StripeConfig
 }
 
 func Load() Config {
@@ -56,9 +84,30 @@ func Load() Config {
 			Bucket:          getenv("AWS_S3_BUCKET", ""),
 			AccessKeyID:     getenv("AWS_ACCESS_KEY_ID", ""),
 			SecretAccessKey: getenv("AWS_SECRET_ACCESS_KEY", ""),
-			// strongbody-api upload đang lưu dưới prefix: public/images/<basePath>/...
-			Prefix:        getenv("AWS_S3_PREFIX", "public/images"),
+			Prefix:          getenv("AWS_S3_PREFIX", "public/images"),
 			PublicBaseURL:   getenv("AWS_S3_PUBLIC_BASE_URL", ""),
+		},
+		OpenAI: OpenAIConfig{
+			APIKey:      getenv("OPENAI_API_KEY", ""),
+			AssistantID: getenv("OPENAI_ASSISTANT_ID", ""),
+			BaseURL:     getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+			Timeout:     getenvInt("OPENAI_TIMEOUT", 60),
+			Model:       getenv("OPENAI_MODEL", "gpt-4o-mini"),
+		},
+		PayPal: PayPalConfig{
+			ClientID:     getenv("PAYPAL_CLIENT_ID", ""),
+			ClientSecret: getenv("PAYPAL_CLIENT_SECRET", ""),
+			APIBase:      getenv("PAYPAL_API_BASE", "https://api-m.sandbox.paypal.com"),
+			ReturnURL:    getenv("PAYPAL_RETURN_URL", "http://localhost:3001/premium/success"),
+			CancelURL:    getenv("PAYPAL_CANCEL_URL", "http://localhost:3001/premium/cancel"),
+			WebhookID:    getenv("PAYPAL_WEBHOOK_ID", ""),
+			TestMode:     getenv("PAYPAL_TEST_MODE", ""),
+		},
+		Stripe: StripeConfig{
+			SecretKey:     getenv("STRIPE_SECRET_KEY", ""),
+			WebhookSecret: getenv("STRIPE_WEBHOOK_SECRET", ""),
+			SuccessURL:    getenv("STRIPE_SUCCESS_URL", "http://localhost:3001/premium/success?session_id={CHECKOUT_SESSION_ID}"),
+			CancelURL:     getenv("STRIPE_CANCEL_URL", "http://localhost:3001/premium/cancel"),
 		},
 	}
 }

@@ -20,9 +20,11 @@ var (
 type CategoryService interface {
 	Create(ctx context.Context, req *categoryv1.CreateReq) (*categoryv1.CreateRes, error)
 	GetByID(ctx context.Context, id uint) (*categoryv1.GetRes, error)
+	GetByIDPublic(ctx context.Context, id uint) (*categoryv1.GetRes, error)
 	Update(ctx context.Context, id uint, req *categoryv1.UpdateReq) (*categoryv1.UpdateRes, error)
 	Delete(ctx context.Context, id uint) error
 	List(ctx context.Context, req *categoryv1.ListReq) (*categoryv1.ListRes, error)
+	ListPublic(ctx context.Context, req *categoryv1.ListReq) (*categoryv1.ListRes, error)
 }
 
 type categoryService struct {
@@ -66,6 +68,20 @@ func (s *categoryService) GetByID(ctx context.Context, id uint) (*categoryv1.Get
 			return nil, ErrCategoryNotFound
 		}
 		return nil, err
+	}
+	return &categoryv1.GetRes{Category: apimap.CategoryToRes(c)}, nil
+}
+
+func (s *categoryService) GetByIDPublic(ctx context.Context, id uint) (*categoryv1.GetRes, error) {
+	c, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrCategoryNotFound
+		}
+		return nil, err
+	}
+	if c.Status != "active" {
+		return nil, ErrCategoryNotFound
 	}
 	return &categoryv1.GetRes{Category: apimap.CategoryToRes(c)}, nil
 }
@@ -141,7 +157,49 @@ func (s *categoryService) List(ctx context.Context, req *categoryv1.ListReq) (*c
 	}
 	order := orderBy + " " + dir
 
-	list, total, err := s.repo.List(ctx, offset, limit, order)
+	list, total, err := s.repo.List(ctx, offset, limit, order, strings.TrimSpace(req.Status), strings.TrimSpace(req.Type))
+	if err != nil {
+		return nil, err
+	}
+	data := make([]categoryv1.CategoryRes, 0, len(list))
+	for i := range list {
+		data = append(data, apimap.CategoryToRes(&list[i]))
+	}
+	return &categoryv1.ListRes{Total: total, Data: data}, nil
+}
+
+func (s *categoryService) ListPublic(ctx context.Context, req *categoryv1.ListReq) (*categoryv1.ListRes, error) {
+	if req == nil {
+		req = &categoryv1.ListReq{}
+	}
+	page, limit := req.Page, req.Limit
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
+
+	orderBy := strings.ToLower(strings.TrimSpace(req.OrderBy))
+	if orderBy == "" {
+		orderBy = "id"
+	}
+	switch orderBy {
+	case "id", "name", "created_at":
+	default:
+		orderBy = "id"
+	}
+	dir := strings.ToUpper(strings.TrimSpace(req.OrderDir))
+	if dir != "ASC" && dir != "DESC" {
+		dir = "ASC"
+	}
+	order := orderBy + " " + dir
+
+	list, total, err := s.repo.List(ctx, offset, limit, order, "active", strings.TrimSpace(req.Type))
 	if err != nil {
 		return nil, err
 	}

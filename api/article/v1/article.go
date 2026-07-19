@@ -10,6 +10,7 @@ type CreateReq struct {
 	Content    string `json:"content"`
 	UserID     uint   `json:"user_id" binding:"required"`
 	CategoryID uint   `json:"category_id" binding:"required"`
+	Featured   bool   `json:"featured"`
 }
 
 type CreateRes struct {
@@ -24,6 +25,7 @@ type UpdateReq struct {
 	Content    *string `json:"content"`
 	UserID     *uint   `json:"user_id"`
 	CategoryID *uint   `json:"category_id"`
+	Featured   *bool   `json:"featured"`
 }
 
 type UpdateRes struct {
@@ -35,10 +37,13 @@ type GetRes struct {
 }
 
 type ListReq struct {
-	Page     int    `form:"page"`
-	Limit    int    `form:"limit"`
-	OrderBy  string `form:"order_by"`
-	OrderDir string `form:"order_dir"`
+	Page       int    `form:"page"`
+	Limit      int    `form:"limit"`
+	CategoryID *uint  `form:"category_id"`
+	Featured   *bool  `form:"featured"`
+	Q          string `form:"q"`
+	OrderBy    string `form:"order_by"`
+	OrderDir   string `form:"order_dir"`
 }
 
 type ListRes struct {
@@ -57,7 +62,10 @@ type ArticleListRes struct {
 	UserEmail    string    `json:"user_email,omitempty"`
 	CategoryID   uint      `json:"category_id"`
 	CategoryName string    `json:"category_name,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
+	Featured            bool      `json:"featured"`
+	AuthorName            string    `json:"author_name,omitempty"`
+	AuthorProfilePicture  string    `json:"author_profile_picture,omitempty"`
+	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
@@ -77,6 +85,9 @@ type ArticleDetailRes struct {
 	UserEmail    string    `json:"user_email,omitempty"`
 	CategoryID   uint      `json:"category_id"`
 	CategoryName string    `json:"category_name,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
+	Featured            bool      `json:"featured"`
+	AuthorName            string    `json:"author_name,omitempty"`
+	AuthorProfilePicture  string    `json:"author_profile_picture,omitempty"`
+	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }

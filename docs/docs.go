@@ -26,7 +26,7 @@ const docTemplate = `{
     "paths": {
         "/health": {
             "get": {
-                "description": "Kiểm tra API còn sống.",
+                "description": "Check whether the API is up.",
                 "produces": [
                     "application/json"
                 ],
