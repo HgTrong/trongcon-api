@@ -9,6 +9,7 @@ type Routine struct {
 	UserID      uint             `json:"user_id" gorm:"not null;index"`
 	User        User             `json:"user,omitempty" gorm:"foreignKey:UserID"`
 	IsPublic    bool             `json:"is_public" gorm:"not null;default:false;index"`
+	Views       int64            `json:"views" gorm:"not null;default:0"`
 	Items       []RoutineWorkout `json:"items,omitempty" gorm:"foreignKey:RoutineID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
 }
 
@@ -31,6 +32,7 @@ type Workout struct {
 	User         User          `json:"user,omitempty" gorm:"foreignKey:UserID"`
 	OwnerUserID  *uint         `json:"owner_user_id,omitempty" gorm:"index"` // nil = catalog; set = personal copy
 	IsPublic     bool          `json:"is_public" gorm:"not null;default:false;index"`
+	Views        int64         `json:"views" gorm:"not null;default:0"`
 	Items        []WorkoutItem `json:"items,omitempty" gorm:"foreignKey:WorkoutID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
 }
 

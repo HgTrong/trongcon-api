@@ -272,25 +272,25 @@ func parseUintParam(ctx *gin.Context, name string) (uint, error) {
 func writeErr(ctx *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrEmailExists):
-		ctx.JSON(http.StatusConflict, swagger.ErrBody{Error: err.Error()})
+		ctx.JSON(http.StatusConflict, swagger.ErrBody{Error: "Email đã được sử dụng"})
 	case errors.Is(err, service.ErrUserNotFound):
-		ctx.JSON(http.StatusNotFound, swagger.ErrBody{Error: err.Error()})
+		ctx.JSON(http.StatusNotFound, swagger.ErrBody{Error: "Không tìm thấy người dùng"})
 	case errors.Is(err, service.ErrInvalidPayload):
-		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: err.Error()})
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: "Dữ liệu không hợp lệ"})
 	case errors.Is(err, service.ErrS3NotConfigured):
-		ctx.JSON(http.StatusServiceUnavailable, swagger.ErrBody{Error: err.Error()})
+		ctx.JSON(http.StatusServiceUnavailable, swagger.ErrBody{Error: "Dịch vụ tải ảnh chưa cấu hình"})
 	default:
-		ctx.JSON(http.StatusInternalServerError, swagger.ErrBody{Error: err.Error()})
+		ctx.JSON(http.StatusInternalServerError, swagger.ErrBody{Error: "Có lỗi xảy ra. Vui lòng thử lại"})
 	}
 }
 
 func writePasswordErr(ctx *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrWrongPassword):
-		ctx.JSON(http.StatusUnauthorized, swagger.ErrBody{Error: err.Error()})
+		ctx.JSON(http.StatusUnauthorized, swagger.ErrBody{Error: "Mật khẩu hiện tại không đúng"})
 	case errors.Is(err, service.ErrUserNotFound):
-		ctx.JSON(http.StatusNotFound, swagger.ErrBody{Error: err.Error()})
+		ctx.JSON(http.StatusNotFound, swagger.ErrBody{Error: "Không tìm thấy người dùng"})
 	default:
-		ctx.JSON(http.StatusInternalServerError, swagger.ErrBody{Error: err.Error()})
+		ctx.JSON(http.StatusInternalServerError, swagger.ErrBody{Error: "Có lỗi xảy ra. Vui lòng thử lại"})
 	}
 }

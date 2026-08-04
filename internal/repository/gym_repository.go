@@ -101,6 +101,7 @@ type TrainerProfileRepository interface {
 	Update(ctx context.Context, t *entity.TrainerProfile) error
 	Delete(ctx context.Context, id uint) error
 	List(ctx context.Context, offset, limit int, order, q string, branchID *uint, isPublic *bool) ([]entity.TrainerProfile, int64, error)
+	IncrementViews(ctx context.Context, id uint) (int64, error)
 }
 
 type trainerProfileRepository struct {
@@ -170,4 +171,17 @@ func (r *trainerProfileRepository) List(ctx context.Context, offset, limit int, 
 		return nil, 0, err
 	}
 	return list, total, nil
+}
+
+func (r *trainerProfileRepository) IncrementViews(ctx context.Context, id uint) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&entity.TrainerProfile{}).Where("id = ?", id).
+		UpdateColumn("views", gorm.Expr("views + 1"))
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	var views int64
+	if err := r.db.WithContext(ctx).Model(&entity.TrainerProfile{}).Where("id = ?", id).Select("views").Scan(&views).Error; err != nil {
+		return 0, err
+	}
+	return views, nil
 }

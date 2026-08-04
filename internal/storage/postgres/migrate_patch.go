@@ -23,6 +23,12 @@ func patchLegacySchema(db *gorm.DB) error {
 	if err := patchExerciseDemoVideoColumns(db); err != nil {
 		return err
 	}
+	if err := patchPTSessionOfferStatusWidth(db); err != nil {
+		return err
+	}
+	if err := patchPTWorkingHoursMultiWindow(db); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -124,5 +130,38 @@ func patchExerciseDemoVideoColumns(db *gorm.DB) error {
 		}
 		log.Println("migrate: renamed exercises.demo_gif_2 → demo_video_2")
 	}
+	return nil
+}
+
+// awaiting_confirmation is 22 chars; older schema used varchar(20).
+func patchPTSessionOfferStatusWidth(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&entity.PTSessionOffer{}) {
+		return nil
+	}
+	if !tableHasColumn(db, "pt_session_offers", "status") {
+		return nil
+	}
+	if err := db.Exec(`ALTER TABLE pt_session_offers ALTER COLUMN status TYPE varchar(32)`).Error; err != nil {
+		return err
+	}
+	log.Println("migrate: pt_session_offers.status → varchar(32)")
+	return nil
+}
+
+// PT can have multiple time windows per weekday — drop old unique (trainer, weekday).
+func patchPTWorkingHoursMultiWindow(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&entity.PTWorkingHours{}) {
+		return nil
+	}
+	// GORM may have created a UNIQUE INDEX or UNIQUE CONSTRAINT under this name.
+	_ = db.Exec(`ALTER TABLE pt_working_hours DROP CONSTRAINT IF EXISTS idx_pt_hours_trainer_day`).Error
+	if err := db.Exec(`DROP INDEX IF EXISTS idx_pt_hours_trainer_day`).Error; err != nil {
+		return err
+	}
+	// New non-unique name so AutoMigrate won't fight the old unique index name.
+	if err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_pt_hours_trainer_weekday ON pt_working_hours (trainer_profile_id, weekday)`).Error; err != nil {
+		return err
+	}
+	log.Println("migrate: pt_working_hours allows multiple windows per weekday")
 	return nil
 }

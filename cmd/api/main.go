@@ -17,9 +17,11 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/joho/godotenv"
 	"trongcon-api/internal/config"
@@ -42,11 +44,16 @@ import (
 	enrollctl "trongcon-api/internal/controller/training_enrollment"
 	aictl "trongcon-api/internal/controller/ai"
 	gymctl "trongcon-api/internal/controller/gym"
+	gymcommercectl "trongcon-api/internal/controller/gym_commerce"
 	planctl "trongcon-api/internal/controller/subscription_plan"
 	subctl "trongcon-api/internal/controller/user_subscription"
 	userctl "trongcon-api/internal/controller/user"
 	statsctl "trongcon-api/internal/controller/stats"
+	revenuectl "trongcon-api/internal/controller/revenue"
+	emailtemplatectl "trongcon-api/internal/controller/email_template"
+	faqctl "trongcon-api/internal/controller/faq"
 	httpserver "trongcon-api/internal/http"
+	"trongcon-api/internal/mail"
 	oaiclient "trongcon-api/internal/openai"
 	"trongcon-api/internal/repository"
 	adminrouter "trongcon-api/internal/router/admin"
@@ -60,6 +67,23 @@ func main() {
 
 	cfg := config.Load()
 	db := postgres.GetDatabaseConnection()
+	emailTplRepo := repository.NewEmailTemplateRepository(db.Connection)
+	mailSender := mail.NewSender(mail.SMTPConfig{
+		Enabled:  cfg.SMTP.Enabled,
+		Name:     cfg.SMTP.Name,
+		Host:     cfg.SMTP.Host,
+		Port:     cfg.SMTP.Port,
+		Username: cfg.SMTP.Username,
+		Password: cfg.SMTP.Password,
+		From:     cfg.SMTP.From,
+	})
+	if mailSender.Enabled() {
+		log.Printf("📧 Mail: AWS SES SMTP enabled (from=%s host=%s)", cfg.SMTP.From, cfg.SMTP.Host)
+	} else {
+		log.Printf("📧 Mail: SMTP disabled or incomplete — outbound email will fail until SMTP_* is set")
+	}
+	emailTplSvc := service.NewEmailTemplateService(emailTplRepo, mailSender)
+	mailerSvc := service.NewMailerService(emailTplRepo, mailSender)
 	userRepo := repository.NewUserRepository(db.Connection)
 	roleRepo := repository.NewRoleRepository(db.Connection)
 	categoryRepo := repository.NewCategoryRepository(db.Connection)
@@ -78,18 +102,22 @@ func main() {
 	aiChatRepo := repository.NewAiChatRepository(db.Connection)
 	branchRepo := repository.NewGymBranchRepository(db.Connection)
 	trainerRepo := repository.NewTrainerProfileRepository(db.Connection)
+	ptStatRepo := repository.NewPTContentStatRepository(db.Connection)
+	ptAttrRepo := repository.NewPTAttributionRepository(db.Connection)
+	ptReviewRepo := repository.NewPTReviewRepository(db.Connection)
+	ptGrowth := service.NewPTGrowthTracker(trainerRepo, ptStatRepo, ptAttrRepo)
 
 	uploadSvc := service.NewUploadService(cfg.S3)
 	userSvc := service.NewUserService(userRepo, roleRepo, uploadSvc)
 	categorySvc := service.NewCategoryService(categoryRepo)
-	articleSvc := service.NewArticleService(articleRepo, categoryRepo, userRepo)
+	articleSvc := service.NewArticleService(articleRepo, categoryRepo, userRepo, trainerRepo, ptGrowth)
 	equipmentSvc := service.NewEquipmentService(equipmentRepo)
 	exerciseSvc := service.NewExerciseService(exerciseRepo, equipmentRepo, muscleRepo)
 	foodSvc := service.NewFoodService(foodRepo)
-	mealPlanSvc := service.NewMealPlanService(mealPlanRepo, foodRepo, userRepo, trainerRepo)
-	routineSvc := service.NewRoutineService(routineRepo, workoutRepo, userRepo, trainerRepo)
-	workoutSvc := service.NewWorkoutService(workoutRepo, exerciseRepo, userRepo, trainerRepo)
-	savedWorkoutSvc := service.NewSavedWorkoutService(savedWorkoutRepo, workoutRepo)
+	mealPlanSvc := service.NewMealPlanService(mealPlanRepo, foodRepo, userRepo, trainerRepo, ptGrowth)
+	routineSvc := service.NewRoutineService(routineRepo, workoutRepo, userRepo, trainerRepo, ptGrowth)
+	workoutSvc := service.NewWorkoutService(workoutRepo, exerciseRepo, userRepo, trainerRepo, ptGrowth)
+	savedWorkoutSvc := service.NewSavedWorkoutService(savedWorkoutRepo, workoutRepo, ptGrowth)
 	macroSvc := service.NewMacroService()
 	foodLogSvc := service.NewFoodLogService(foodLogRepo, foodRepo, macroSvc)
 	myTrainSvc := service.NewMyTrainService(workoutRepo, exerciseRepo, routineRepo)
@@ -101,22 +129,100 @@ func main() {
 	statsSvc := service.NewStatsService(db.Connection)
 	openaiClient := oaiclient.NewClient(cfg.OpenAI)
 	aiCoachSvc := service.NewAICoachService(openaiClient, foodRepo, exerciseRepo, muscleRepo, mealPlanSvc, myTrainSvc, aiChatRepo)
-	gymSvc := service.NewGymService(branchRepo, trainerRepo, userRepo, roleRepo, workoutRepo, routineRepo, mealPlanRepo)
+	gymSvc := service.NewGymService(branchRepo, trainerRepo, userRepo, roleRepo, workoutRepo, routineRepo, mealPlanRepo, ptGrowth)
 
 	planRepo := repository.NewSubscriptionPlanRepository(db.Connection)
 	userSubRepo := repository.NewUserSubscriptionRepository(db.Connection)
 	paymentHistoryRepo := repository.NewPaymentHistoryRepository(db.Connection)
-	paypalSvc, err := service.NewPayPalService(cfg.PayPal)
-	if err != nil {
-		log.Printf("PayPal init warning: %v — using mock", err)
-		cfg.PayPal.TestMode = "mock"
-		paypalSvc, _ = service.NewPayPalService(cfg.PayPal)
+	vnpaySvc := service.NewVNPayService(cfg.VNPay)
+	if !vnpaySvc.Enabled() {
+		log.Printf("VNPay: TMN_CODE/SECRET_KEY missing — VNPay checkout disabled")
+	} else {
+		log.Printf("VNPay: enabled (return %s)", cfg.VNPay.ReturnURL)
 	}
 	planSvc := service.NewSubscriptionPlanService(planRepo)
 	stripeSvc := service.NewStripeService(cfg.Stripe)
-	userSubSvc := service.NewUserSubscriptionService(userSubRepo, planRepo, paymentHistoryRepo, userRepo, paypalSvc, stripeSvc)
+	userSubSvc := service.NewUserSubscriptionService(userSubRepo, planRepo, paymentHistoryRepo, userRepo, vnpaySvc, stripeSvc)
 
-	authSvc := service.NewAuthService(userRepo, roleRepo, cfg.JWTSecret, cfg.JWTExpiration)
+	gymMembershipPlanRepo := repository.NewGymMembershipPlanRepository(db.Connection)
+	userGymMembershipRepo := repository.NewUserGymMembershipRepository(db.Connection)
+	groupClassRepo := repository.NewGroupClassRepository(db.Connection)
+	classSessionRepo := repository.NewClassSessionRepository(db.Connection)
+	classBookingRepo := repository.NewClassBookingRepository(db.Connection)
+	ptPackageRepo := repository.NewPTPackageRepository(db.Connection)
+	userPTPackageRepo := repository.NewUserPTPackageRepository(db.Connection)
+	ptSessionLogRepo := repository.NewPTSessionLogRepository(db.Connection)
+	ptChatRepo := repository.NewPTPackageChatRepository(db.Connection)
+	revenueShareRepo := repository.NewRevenueShareSettingRepository(db.Connection)
+	ptEarningRepo := repository.NewPTEarningRepository(db.Connection)
+	ptHoursRepo := repository.NewPTWorkingHoursRepository(db.Connection)
+	ptBlockedRepo := repository.NewPTBlockedSlotRepository(db.Connection)
+	gymCommerceSvc := service.NewGymCommerceService(
+		gymMembershipPlanRepo, userGymMembershipRepo, groupClassRepo, classSessionRepo, classBookingRepo,
+		ptPackageRepo, userPTPackageRepo, ptSessionLogRepo,
+		repository.NewPTSessionOfferRepository(db.Connection),
+		ptChatRepo, ptHoursRepo, ptBlockedRepo,
+		ptStatRepo, ptAttrRepo, ptReviewRepo, ptGrowth,
+		revenueShareRepo, ptEarningRepo, trainerRepo, userRepo,
+		vnpaySvc, stripeSvc,
+		cfg.VNPay.MembershipReturnURL, cfg.VNPay.PackageReturnURL,
+		cfg.Stripe.MembershipSuccessURL, cfg.Stripe.MembershipCancelURL,
+		cfg.Stripe.PackageSuccessURL, cfg.Stripe.PackageCancelURL,
+	)
+	gymCommerceSvc.ConfigureOps(mailerSvc, userSubSvc, cfg.JWTSecret, repository.NewGymCheckInRepository(db.Connection))
+
+	// Auto-confirm PT session proofs after 1 day if the student forgets.
+	go func() {
+		ticker := time.NewTicker(15 * time.Minute)
+		defer ticker.Stop()
+		for {
+			n, err := gymCommerceSvc.AutoConfirmExpiredSessionProofs(context.Background(), 24*time.Hour, 100)
+			if err != nil {
+				log.Printf("pt auto-confirm: %v", err)
+			} else if n > 0 {
+				log.Printf("pt auto-confirm: confirmed %d session(s)", n)
+			}
+			<-ticker.C
+		}
+	}()
+
+	// Cancel session offers left "pending" for 2+ days — otherwise a forgotten
+	// proposal keeps blocking the trainer's slot / the package's session credit.
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			n, err := gymCommerceSvc.ExpireStalePendingOffers(context.Background(), 48*time.Hour)
+			if err != nil {
+				log.Printf("pt stale-offer cleanup: %v", err)
+			} else if n > 0 {
+				log.Printf("pt stale-offer cleanup: cancelled %d offer(s)", n)
+			}
+			<-ticker.C
+		}
+	}()
+
+	// Actively flip expired gym memberships / PT packages to "expired" instead of
+	// relying only on lazy expiry the next time someone reads the list.
+	go func() {
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		for {
+			if err := gymCommerceSvc.RunExpiryHousekeeping(context.Background()); err != nil {
+				log.Printf("membership/pt-package expiry housekeeping: %v", err)
+			}
+			<-ticker.C
+		}
+	}()
+
+	authSvc := service.NewAuthService(
+		userRepo,
+		roleRepo,
+		repository.NewEmailOTPRepository(db.Connection),
+		mailerSvc,
+		cfg.JWTSecret,
+		cfg.JWTExpiration,
+	)
 
 	userController := userctl.NewController(userSvc)
 	authController := authctl.NewController(authSvc)
@@ -139,8 +245,17 @@ func main() {
 	toolsController := toolsctl.NewController(tdeeSvc, macroSvc, oneRepMaxSvc)
 	uploadController := uploadctl.NewController(uploadSvc)
 	statsController := statsctl.NewController(statsSvc)
+	revenueSvc := service.NewRevenueService(db.Connection)
+	revenueController := revenuectl.NewController(revenueSvc)
 	planController := planctl.NewController(planSvc)
 	userSubController := subctl.NewController(userSubSvc, cfg.Stripe)
+	userSubController.SetGymCommerce(gymCommerceSvc)
+	gymCommerceController := gymcommercectl.NewController(gymCommerceSvc)
+	emailTemplateController := emailtemplatectl.NewController(emailTplSvc)
+
+	faqRepo := repository.NewFAQRepository(db.Connection)
+	faqSvc := service.NewFAQService(faqRepo)
+	faqController := faqctl.NewController(faqSvc)
 
 	router := httpserver.NewRouter(cfg, httpserver.Deps{
 		Auth:         authController,
@@ -166,9 +281,13 @@ func main() {
 			Tools:            toolsController,
 			Upload:           uploadController,
 			Stats:            statsController,
+			Revenue:          revenueController,
 			Gym:              gymController,
 			SubscriptionPlan: planController,
 			UserSubscription: userSubController,
+			GymCommerce:      gymCommerceController,
+			EmailTemplate:    emailTemplateController,
+			FAQ:              faqController,
 		},
 		Public: publicrouter.Controllers{
 			Exercise:         exerciseController,
@@ -183,6 +302,8 @@ func main() {
 			Tools:            toolsController,
 			Gym:              gymController,
 			SubscriptionPlan: planController,
+			GymCommerce:      gymCommerceController,
+			FAQ:              faqController,
 		},
 	})
 

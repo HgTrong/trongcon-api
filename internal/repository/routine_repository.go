@@ -16,6 +16,7 @@ type RoutineRepository interface {
 	Delete(ctx context.Context, id uint) error
 	List(ctx context.Context, offset, limit int, order, q, difficulty string, userID *uint, isPublic *bool) ([]entity.Routine, int64, error)
 	ReplaceItems(ctx context.Context, routineID uint, items []entity.RoutineWorkout) error
+	IncrementViews(ctx context.Context, id uint) (int64, error)
 }
 
 type routineRepository struct {
@@ -102,4 +103,17 @@ func (r *routineRepository) ReplaceItems(ctx context.Context, routineID uint, it
 		}
 		return tx.Create(&items).Error
 	})
+}
+
+func (r *routineRepository) IncrementViews(ctx context.Context, id uint) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&entity.Routine{}).Where("id = ?", id).
+		UpdateColumn("views", gorm.Expr("views + 1"))
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	var views int64
+	if err := r.db.WithContext(ctx).Model(&entity.Routine{}).Where("id = ?", id).Select("views").Scan(&views).Error; err != nil {
+		return 0, err
+	}
+	return views, nil
 }

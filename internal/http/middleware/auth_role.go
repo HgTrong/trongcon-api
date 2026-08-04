@@ -16,7 +16,18 @@ func parseBearerClaims(c *gin.Context, jwtSecret string) (*jwtutil.Claims, error
 		return nil, jwtutil.ErrInvalidToken
 	}
 	raw := strings.TrimSpace(h[7:])
-	return jwtutil.Parse(raw, []byte(jwtSecret))
+	claims, err := jwtutil.Parse(raw, []byte(jwtSecret))
+	if err != nil {
+		return nil, err
+	}
+	purpose := claims.Purpose
+	if purpose == "" {
+		purpose = jwtutil.PurposeAccess
+	}
+	if purpose != jwtutil.PurposeAccess {
+		return nil, jwtutil.ErrInvalidToken
+	}
+	return claims, nil
 }
 
 func abortUnauthorized(c *gin.Context, msg string) {

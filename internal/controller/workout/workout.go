@@ -48,6 +48,20 @@ func (c *Controller) List(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
+func (c *Controller) AdminList(ctx *gin.Context) {
+	var req workoutv1.ListReq
+	if err := ctx.ShouldBindQuery(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: err.Error()})
+		return
+	}
+	res, err := c.svc.AdminList(ctx.Request.Context(), &req)
+	if err != nil {
+		writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, res)
+}
+
 func (c *Controller) GetByID(ctx *gin.Context) {
 	id, err := parseUintParam(ctx, "id")
 	if err != nil {
@@ -55,6 +69,20 @@ func (c *Controller) GetByID(ctx *gin.Context) {
 		return
 	}
 	res, err := c.svc.GetByID(ctx.Request.Context(), id)
+	if err != nil {
+		writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, res)
+}
+
+func (c *Controller) AdminGetByID(ctx *gin.Context) {
+	id, err := parseUintParam(ctx, "id")
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: "invalid id"})
+		return
+	}
+	res, err := c.svc.AdminGetByID(ctx.Request.Context(), id)
 	if err != nil {
 		writeErr(ctx, err)
 		return

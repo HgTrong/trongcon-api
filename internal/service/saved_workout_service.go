@@ -23,14 +23,16 @@ type SavedWorkoutService interface {
 type savedWorkoutService struct {
 	repo        repository.SavedWorkoutRepository
 	workoutRepo repository.WorkoutRepository
+	growth      PTGrowthTracker
 }
 
-func NewSavedWorkoutService(repo repository.SavedWorkoutRepository, workoutRepo repository.WorkoutRepository) SavedWorkoutService {
-	return &savedWorkoutService{repo: repo, workoutRepo: workoutRepo}
+func NewSavedWorkoutService(repo repository.SavedWorkoutRepository, workoutRepo repository.WorkoutRepository, growth PTGrowthTracker) SavedWorkoutService {
+	return &savedWorkoutService{repo: repo, workoutRepo: workoutRepo, growth: growth}
 }
 
 func (s *savedWorkoutService) Save(ctx context.Context, userID, workoutID uint) (*savedv1.SaveRes, error) {
-	if _, err := s.workoutRepo.GetByID(ctx, workoutID); err != nil {
+	w, err := s.workoutRepo.GetByID(ctx, workoutID)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrWorkoutNotFound
 		}
@@ -40,6 +42,9 @@ func (s *savedWorkoutService) Save(ctx context.Context, userID, workoutID uint) 
 	row, err := s.repo.Save(ctx, userID, workoutID)
 	if err != nil {
 		return nil, err
+	}
+	if s.growth != nil && w.UserID > 0 {
+		s.growth.TrackContentSave(ctx, ContentTypeWorkout, w.ID, w.Title, w.UserID, userID)
 	}
 	return &savedv1.SaveRes{
 		Status:    "saved",

@@ -18,6 +18,7 @@ type ArticleRepository interface {
 	List(ctx context.Context, offset, limit int, order string, categoryID *uint, featured *bool, q string, activeCategoryOnly bool) ([]entity.Article, int64, error)
 	SlugExists(ctx context.Context, slug string, excludeID uint) (bool, error)
 	GetBySlug(ctx context.Context, slug string) (*entity.Article, error)
+	IncrementViews(ctx context.Context, id uint) (int64, error)
 }
 
 type articleRepository struct {
@@ -110,4 +111,17 @@ func (r *articleRepository) SlugExists(ctx context.Context, slug string, exclude
 		return false, err
 	}
 	return n > 0, nil
+}
+
+func (r *articleRepository) IncrementViews(ctx context.Context, id uint) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&entity.Article{}).Where("id = ?", id).
+		UpdateColumn("views", gorm.Expr("views + 1"))
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	var views int64
+	if err := r.db.WithContext(ctx).Model(&entity.Article{}).Where("id = ?", id).Select("views").Scan(&views).Error; err != nil {
+		return 0, err
+	}
+	return views, nil
 }

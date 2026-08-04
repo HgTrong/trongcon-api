@@ -7,6 +7,7 @@ type MealPlan struct {
 	UserID      uint           `json:"user_id" gorm:"not null;index"`
 	User        User           `json:"user,omitempty" gorm:"foreignKey:UserID"`
 	IsPublic    bool           `json:"is_public" gorm:"not null;default:false;index"`
+	Views       int64          `json:"views" gorm:"not null;default:0"`
 	Meals       []MealPlanMeal `json:"meals,omitempty" gorm:"foreignKey:MealPlanID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
 }
 

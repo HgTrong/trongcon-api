@@ -68,7 +68,7 @@ func (s *payPalService) IsMock() bool {
 func (s *payPalService) CreateOrder(ctx context.Context, amount, currency string, userID uint) (*PayPalOrderResult, error) {
 	currency = strings.ToUpper(strings.TrimSpace(currency))
 	if currency == "" {
-		currency = "USD"
+		currency = "VND"
 	}
 	amount = strings.TrimSpace(amount)
 	if amount == "" {

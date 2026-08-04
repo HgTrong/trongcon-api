@@ -14,6 +14,7 @@ type UserRepository interface {
 	Create(ctx context.Context, u *entity.User) error
 	GetByID(ctx context.Context, id uint) (*entity.User, error)
 	GetByEmail(ctx context.Context, email string) (*entity.User, error)
+	ListByIDs(ctx context.Context, ids []uint) ([]entity.User, error)
 	Update(ctx context.Context, u *entity.User) error
 	Delete(ctx context.Context, id uint) error
 	List(ctx context.Context, offset, limit int, order string) ([]entity.User, int64, error)
@@ -53,6 +54,15 @@ func (r *userRepository) GetByEmail(ctx context.Context, email string) (*entity.
 		return nil, err
 	}
 	return &u, nil
+}
+
+func (r *userRepository) ListByIDs(ctx context.Context, ids []uint) ([]entity.User, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var list []entity.User
+	err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&list).Error
+	return list, err
 }
 
 func (r *userRepository) Update(ctx context.Context, u *entity.User) error {

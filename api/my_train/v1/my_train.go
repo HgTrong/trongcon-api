@@ -56,6 +56,7 @@ type WorkoutRes struct {
 	UserID        uint             `json:"user_id"`
 	OwnerUserID   *uint            `json:"owner_user_id,omitempty"`
 	IsPublic      bool             `json:"is_public"`
+	Views         int64            `json:"views"`
 	Items         []WorkoutItemRes `json:"items"`
 	ExerciseCount int              `json:"exercise_count"`
 	TotalSets     int              `json:"total_sets"`

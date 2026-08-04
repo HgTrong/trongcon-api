@@ -1,6 +1,10 @@
 package v1
 
-import "time"
+import (
+	"time"
+
+	authorv1 "trongcon-api/api/author/v1"
+)
 
 type CreateReq struct {
 	Title      string `json:"title" binding:"required,min=1,max=500"`
@@ -65,6 +69,8 @@ type ArticleListRes struct {
 	Featured            bool      `json:"featured"`
 	AuthorName            string    `json:"author_name,omitempty"`
 	AuthorProfilePicture  string    `json:"author_profile_picture,omitempty"`
+	Author                *authorv1.AuthorRes `json:"author,omitempty"`
+	Views                 int64     `json:"views"`
 	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -88,6 +94,8 @@ type ArticleDetailRes struct {
 	Featured            bool      `json:"featured"`
 	AuthorName            string    `json:"author_name,omitempty"`
 	AuthorProfilePicture  string    `json:"author_profile_picture,omitempty"`
+	Author                *authorv1.AuthorRes `json:"author,omitempty"`
+	Views                 int64     `json:"views"`
 	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }

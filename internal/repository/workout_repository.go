@@ -16,9 +16,11 @@ type WorkoutRepository interface {
 	Delete(ctx context.Context, id uint) error
 	List(ctx context.Context, offset, limit int, order, q, difficulty, goal string) ([]entity.Workout, int64, error)
 	ListCatalog(ctx context.Context, offset, limit int, order, q, difficulty, goal string) ([]entity.Workout, int64, error)
+	ListAll(ctx context.Context, offset, limit int, order, q, difficulty, goal string) ([]entity.Workout, int64, error)
 	ListByOwner(ctx context.Context, ownerID uint, offset, limit int, order, q string) ([]entity.Workout, int64, error)
 	ListPublicByOwner(ctx context.Context, ownerID uint, offset, limit int, order string) ([]entity.Workout, int64, error)
 	ReplaceItems(ctx context.Context, workoutID uint, items []entity.WorkoutItem) error
+	IncrementViews(ctx context.Context, id uint) (int64, error)
 }
 
 type workoutRepository struct {
@@ -105,6 +107,20 @@ func (r *workoutRepository) ListCatalog(ctx context.Context, offset, limit int, 
 	return r.listFiltered(ctx, query, offset, limit, order)
 }
 
+func (r *workoutRepository) ListAll(ctx context.Context, offset, limit int, order, q, difficulty, goal string) ([]entity.Workout, int64, error) {
+	query := r.db.WithContext(ctx).Model(&entity.Workout{})
+	if q != "" {
+		query = query.Where("title ILIKE ?", "%"+q+"%")
+	}
+	if difficulty != "" {
+		query = query.Where("difficulty = ?", difficulty)
+	}
+	if goal != "" {
+		query = query.Where("goal = ?", goal)
+	}
+	return r.listFiltered(ctx, query, offset, limit, order)
+}
+
 func (r *workoutRepository) ListPublicByOwner(ctx context.Context, ownerID uint, offset, limit int, order string) ([]entity.Workout, int64, error) {
 	// Published personal copies OR catalog items authored by this user.
 	query := r.db.WithContext(ctx).Model(&entity.Workout{}).Where(
@@ -115,9 +131,9 @@ func (r *workoutRepository) ListPublicByOwner(ctx context.Context, ownerID uint,
 }
 
 func (r *workoutRepository) ListByOwner(ctx context.Context, ownerID uint, offset, limit int, order, q string) ([]entity.Workout, int64, error) {
-	// Personal workouts + catalog workouts posted by this user (admin "Posted by").
+	// Personal copies (owner) + anything authored/posted by this user (admin "Posted by" or PT create).
 	query := r.db.WithContext(ctx).Model(&entity.Workout{}).Where(
-		"owner_user_id = ? OR (owner_user_id IS NULL AND user_id = ?)",
+		"owner_user_id = ? OR user_id = ?",
 		ownerID, ownerID,
 	)
 	if q != "" {
@@ -140,4 +156,17 @@ func (r *workoutRepository) ReplaceItems(ctx context.Context, workoutID uint, it
 		}
 		return tx.Create(&items).Error
 	})
+}
+
+func (r *workoutRepository) IncrementViews(ctx context.Context, id uint) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&entity.Workout{}).Where("id = ?", id).
+		UpdateColumn("views", gorm.Expr("views + 1"))
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	var views int64
+	if err := r.db.WithContext(ctx).Model(&entity.Workout{}).Where("id = ?", id).Select("views").Scan(&views).Error; err != nil {
+		return 0, err
+	}
+	return views, nil
 }

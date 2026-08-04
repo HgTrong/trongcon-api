@@ -106,6 +106,7 @@ type MealPlanRes struct {
 	TotalCarb     float64           `json:"total_carb"`
 	TotalFat      float64           `json:"total_fat"`
 	TotalCalories float64           `json:"total_calories"`
+	Views         int64             `json:"views"`
 	CreatedAt     time.Time         `json:"created_at"`
 	UpdatedAt     time.Time         `json:"updated_at"`
 }

@@ -3,29 +3,38 @@ package v1
 import "time"
 
 type CreateBranchReq struct {
-	Name        string `json:"name" binding:"required,min=1,max=200"`
-	Address     string `json:"address" binding:"required,min=1,max=500"`
-	City        string `json:"city"`
-	Phone       string `json:"phone"`
-	Email       string `json:"email"`
-	Hours       string `json:"hours"`
-	Description string `json:"description"`
-	ImageURL    string `json:"image_url"`
-	IsActive    *bool  `json:"is_active"`
-	SortOrder   int    `json:"sort_order"`
+	Name        string   `json:"name" binding:"required,min=1,max=200"`
+	Address     string   `json:"address" binding:"required,min=1,max=500"`
+	District    string   `json:"district"`
+	City        string   `json:"city"`
+	Phone       string   `json:"phone"`
+	Email       string   `json:"email"`
+	Hours       string   `json:"hours"`
+	Description string   `json:"description"`
+	ImageURL    string   `json:"image_url"`
+	Gallery     []string `json:"gallery"`
+	Latitude    *float64 `json:"latitude"`
+	Longitude   *float64 `json:"longitude"`
+	IsActive    *bool    `json:"is_active"`
+	SortOrder   int      `json:"sort_order"`
 }
 
 type UpdateBranchReq struct {
-	Name        *string `json:"name" binding:"omitempty,min=1,max=200"`
-	Address     *string `json:"address" binding:"omitempty,min=1,max=500"`
-	City        *string `json:"city"`
-	Phone       *string `json:"phone"`
-	Email       *string `json:"email"`
-	Hours       *string `json:"hours"`
-	Description *string `json:"description"`
-	ImageURL    *string `json:"image_url"`
-	IsActive    *bool   `json:"is_active"`
-	SortOrder   *int    `json:"sort_order"`
+	Name        *string  `json:"name" binding:"omitempty,min=1,max=200"`
+	Address     *string  `json:"address" binding:"omitempty,min=1,max=500"`
+	District    *string  `json:"district"`
+	City        *string  `json:"city"`
+	Phone       *string  `json:"phone"`
+	Email       *string  `json:"email"`
+	Hours       *string  `json:"hours"`
+	Description *string  `json:"description"`
+	ImageURL    *string   `json:"image_url"`
+	Gallery     *[]string `json:"gallery"` // nil = leave unchanged; empty = clear
+	Latitude    *float64  `json:"latitude"`
+	Longitude   *float64  `json:"longitude"`
+	ClearCoords bool      `json:"clear_coords"` // set lat/lng to null
+	IsActive    *bool     `json:"is_active"`
+	SortOrder   *int      `json:"sort_order"`
 }
 
 type ListBranchReq struct {
@@ -39,16 +48,20 @@ type ListBranchReq struct {
 }
 
 type BranchRes struct {
-	ID          uint      `json:"id"`
-	Name        string    `json:"name"`
-	Slug        string    `json:"slug"`
-	Address     string    `json:"address"`
-	City        string    `json:"city"`
-	Phone       string    `json:"phone"`
-	Email       string    `json:"email"`
-	Hours       string    `json:"hours"`
+	ID          uint     `json:"id"`
+	Name        string   `json:"name"`
+	Slug        string   `json:"slug"`
+	Address     string   `json:"address"`
+	District    string   `json:"district"`
+	City        string   `json:"city"`
+	Phone       string   `json:"phone"`
+	Email       string   `json:"email"`
+	Hours       string   `json:"hours"`
 	Description string    `json:"description"`
 	ImageURL    string    `json:"image_url"`
+	Gallery     []string  `json:"gallery"`
+	Latitude    *float64  `json:"latitude,omitempty"`
+	Longitude   *float64  `json:"longitude,omitempty"`
 	IsActive    bool      `json:"is_active"`
 	SortOrder   int       `json:"sort_order"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -125,6 +138,7 @@ type TrainerRes struct {
 	Certifications  string     `json:"certifications"`
 	YearsExperience int        `json:"years_experience"`
 	IsPublic        bool       `json:"is_public"`
+	Views           int64      `json:"views"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 }

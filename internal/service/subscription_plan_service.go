@@ -10,6 +10,7 @@ import (
 
 	planv1 "trongcon-api/api/subscription_plan/v1"
 	"trongcon-api/internal/entity"
+	"trongcon-api/internal/money"
 	"trongcon-api/internal/repository"
 
 	"gorm.io/gorm"
@@ -37,10 +38,7 @@ func (s *subscriptionPlanService) Create(ctx context.Context, req *planv1.Create
 	if req.IsActive != nil {
 		active = *req.IsActive
 	}
-	currency := strings.ToUpper(strings.TrimSpace(req.Currency))
-	if currency == "" {
-		currency = "USD"
-	}
+	currency := money.Normalize(req.Currency)
 	kind := strings.TrimSpace(req.Kind)
 	if kind == "" {
 		kind = entity.PlanKindPremium
@@ -91,7 +89,7 @@ func (s *subscriptionPlanService) Update(ctx context.Context, id uint, req *plan
 		p.Price = *req.Price
 	}
 	if req.Currency != nil {
-		p.Currency = strings.ToUpper(strings.TrimSpace(*req.Currency))
+		p.Currency = money.Normalize(*req.Currency)
 	}
 	if req.DurationMonths != nil {
 		p.DurationMonths = *req.DurationMonths

@@ -17,6 +17,7 @@ type MealPlanRepository interface {
 	Delete(ctx context.Context, id uint) error
 	List(ctx context.Context, offset, limit int, order, q string, userID *uint, isPublic *bool) ([]entity.MealPlan, int64, error)
 	ReplaceMeals(ctx context.Context, mealPlanID uint, meals []entity.MealPlanMeal) error
+	IncrementViews(ctx context.Context, id uint) (int64, error)
 }
 
 type mealPlanRepository struct {
@@ -122,4 +123,17 @@ func (r *mealPlanRepository) ReplaceMeals(ctx context.Context, mealPlanID uint, 
 		}
 		return nil
 	})
+}
+
+func (r *mealPlanRepository) IncrementViews(ctx context.Context, id uint) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&entity.MealPlan{}).Where("id = ?", id).
+		UpdateColumn("views", gorm.Expr("views + 1"))
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	var views int64
+	if err := r.db.WithContext(ctx).Model(&entity.MealPlan{}).Where("id = ?", id).Select("views").Scan(&views).Error; err != nil {
+		return 0, err
+	}
+	return views, nil
 }

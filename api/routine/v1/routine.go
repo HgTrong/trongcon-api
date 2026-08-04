@@ -101,6 +101,7 @@ type RoutineRes struct {
 	WorkoutCount  int                 `json:"workout_count"`
 	ExerciseCount int                 `json:"exercise_count"`
 	TotalSets     int                 `json:"total_sets"`
+	Views         int64               `json:"views"`
 	CreatedAt     time.Time           `json:"created_at"`
 	UpdatedAt     time.Time           `json:"updated_at"`
 }

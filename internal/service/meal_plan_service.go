@@ -40,10 +40,11 @@ type mealPlanService struct {
 	foodRepo    repository.FoodRepository
 	userRepo    repository.UserRepository
 	trainerRepo repository.TrainerProfileRepository
+	growth      PTGrowthTracker
 }
 
-func NewMealPlanService(repo repository.MealPlanRepository, foodRepo repository.FoodRepository, userRepo repository.UserRepository, trainerRepo repository.TrainerProfileRepository) MealPlanService {
-	return &mealPlanService{repo: repo, foodRepo: foodRepo, userRepo: userRepo, trainerRepo: trainerRepo}
+func NewMealPlanService(repo repository.MealPlanRepository, foodRepo repository.FoodRepository, userRepo repository.UserRepository, trainerRepo repository.TrainerProfileRepository, growth PTGrowthTracker) MealPlanService {
+	return &mealPlanService{repo: repo, foodRepo: foodRepo, userRepo: userRepo, trainerRepo: trainerRepo, growth: growth}
 }
 
 func normalizeQty(v float64) float64 {
@@ -165,6 +166,7 @@ func toMealPlanRes(mp *entity.MealPlan) mealplanv1.MealPlanRes {
 		Description: mp.Description,
 		UserID:      mp.UserID,
 		IsPublic:    mp.IsPublic,
+		Views:       mp.Views,
 		CreatedAt:   mp.CreatedAt,
 		UpdatedAt:   mp.UpdatedAt,
 		Meals:       make([]mealplanv1.MealPlanMealRes, 0, len(mp.Meals)),
@@ -274,6 +276,12 @@ func (s *mealPlanService) GetByIDPublic(ctx context.Context, id uint) (*mealplan
 	}
 	if !mp.IsPublic {
 		return nil, ErrMealPlanNotFound
+	}
+	if views, err := s.repo.IncrementViews(ctx, mp.ID); err == nil {
+		mp.Views = views
+	}
+	if s.growth != nil {
+		s.growth.TrackContentView(ctx, ContentTypeMealPlan, mp.ID, mp.Title, mp.UserID, 0)
 	}
 	res := toMealPlanRes(mp)
 	res.Author = authorForUserID(ctx, s.trainerRepo, s.userRepo, mp.UserID)

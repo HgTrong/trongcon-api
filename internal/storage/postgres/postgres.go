@@ -87,10 +87,35 @@ func autoMigrate(db *gorm.DB) error {
 		&entity.AiChatMessage{},
 		&entity.GymBranch{},
 		&entity.TrainerProfile{},
+		&entity.FAQ{},
 		&entity.SubscriptionPlan{},
 		&entity.UserSubscription{},
 		&entity.PaymentHistory{},
+		&entity.GymMembershipPlan{},
+		&entity.UserGymMembership{},
+		&entity.GroupClass{},
+		&entity.ClassSession{},
+		&entity.ClassBooking{},
+		&entity.PTPackage{},
+		&entity.UserPTPackage{},
+		&entity.RevenueShareSetting{},
+		&entity.PTEarning{},
+		&entity.PTSessionLog{},
+		&entity.PTSessionOffer{},
+		&entity.PTWorkingHours{},
+		&entity.PTBlockedSlot{},
+		&entity.PTPackageChatMessage{},
+		&entity.PTPackageChatRead{},
+		&entity.PTContentStat{},
+		&entity.PTAttribution{},
+		&entity.PTReview{},
+		&entity.GymCheckIn{},
+		&entity.EmailTemplate{},
+		&entity.EmailOTP{},
 	); err != nil {
+		return err
+	}
+	if err := seedTransactionalEmailTemplates(db); err != nil {
 		return err
 	}
 	if err := migrateFoodLogMeals(db); err != nil {

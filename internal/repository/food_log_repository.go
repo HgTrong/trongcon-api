@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"time"
 
@@ -103,18 +104,21 @@ func (r *foodLogRepository) CountEntriesInMeal(ctx context.Context, userID, meal
 }
 
 func (r *foodLogRepository) LatestMealTemplate(ctx context.Context, userID uint, before time.Time) ([]entity.FoodLogMeal, error) {
-	var latestDate *time.Time
+	var latestDate sql.NullTime
 	err := r.db.WithContext(ctx).Model(&entity.FoodLogMeal{}).
 		Where("user_id = ? AND log_date < ?", userID, before.Format("2006-01-02")).
 		Select("MAX(log_date)").
 		Scan(&latestDate).Error
-	if err != nil || latestDate == nil {
+	if err != nil {
 		return nil, err
+	}
+	if !latestDate.Valid {
+		return nil, nil
 	}
 
 	var list []entity.FoodLogMeal
 	err = r.db.WithContext(ctx).
-		Where("user_id = ? AND log_date = ?", userID, latestDate.Format("2006-01-02")).
+		Where("user_id = ? AND log_date = ?", userID, latestDate.Time.Format("2006-01-02")).
 		Order("sort_order ASC, id ASC").
 		Find(&list).Error
 	return list, err

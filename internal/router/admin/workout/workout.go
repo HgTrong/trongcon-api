@@ -10,8 +10,8 @@ func Register(g *gin.RouterGroup, c *workoutctl.Controller) {
 	wg := g.Group("/workouts")
 	{
 		wg.POST("", c.Create)
-		wg.GET("", c.List)
-		wg.GET("/:id", c.GetByID)
+		wg.GET("", c.AdminList)
+		wg.GET("/:id", c.AdminGetByID)
 		wg.PUT("/:id", c.Update)
 		wg.DELETE("/:id", c.Delete)
 	}

@@ -84,11 +84,13 @@ type UserSubscriptionRepository interface {
 	GetByID(ctx context.Context, id uint) (*entity.UserSubscription, error)
 	GetByPayPalOrderID(ctx context.Context, orderID string) (*entity.UserSubscription, error)
 	GetByStripeCheckoutSessionID(ctx context.Context, sessionID string) (*entity.UserSubscription, error)
+	GetByVnpTxnRef(ctx context.Context, txnRef string) (*entity.UserSubscription, error)
 	GetActiveByUserID(ctx context.Context, userID uint, now time.Time) (*entity.UserSubscription, error)
 	ListByUserID(ctx context.Context, userID uint, limit int) ([]entity.UserSubscription, error)
-	ListAdmin(ctx context.Context, offset, limit int, status string, userID uint, orderBy, orderDir string) ([]entity.UserSubscription, int64, error)
+	ListAdmin(ctx context.Context, offset, limit int, status string, userID uint, q, orderBy, orderDir string) ([]entity.UserSubscription, int64, error)
 	ExpireEnded(ctx context.Context, now time.Time) error
 	HasActive(ctx context.Context, userID uint, now time.Time) (bool, error)
+	HasUsedTrial(ctx context.Context, userID uint) (bool, error)
 }
 
 type userSubscriptionRepository struct{ db *gorm.DB }
@@ -129,6 +131,14 @@ func (r *userSubscriptionRepository) GetByStripeCheckoutSessionID(ctx context.Co
 	return &s, nil
 }
 
+func (r *userSubscriptionRepository) GetByVnpTxnRef(ctx context.Context, txnRef string) (*entity.UserSubscription, error) {
+	var s entity.UserSubscription
+	if err := r.db.WithContext(ctx).Preload("SubscriptionPlan").Where("vnp_txn_ref = ?", txnRef).First(&s).Error; err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
 func (r *userSubscriptionRepository) GetActiveByUserID(ctx context.Context, userID uint, now time.Time) (*entity.UserSubscription, error) {
 	var s entity.UserSubscription
 	err := r.db.WithContext(ctx).Preload("SubscriptionPlan").
@@ -150,7 +160,7 @@ func (r *userSubscriptionRepository) ListByUserID(ctx context.Context, userID ui
 	return rows, err
 }
 
-func (r *userSubscriptionRepository) ListAdmin(ctx context.Context, offset, limit int, status string, userID uint, orderBy, orderDir string) ([]entity.UserSubscription, int64, error) {
+func (r *userSubscriptionRepository) ListAdmin(ctx context.Context, offset, limit int, status string, userID uint, q, orderBy, orderDir string) ([]entity.UserSubscription, int64, error) {
 	tx := r.db.WithContext(ctx).Model(&entity.UserSubscription{})
 	if status != "" {
 		tx = tx.Where("status = ?", status)
@@ -158,14 +168,26 @@ func (r *userSubscriptionRepository) ListAdmin(ctx context.Context, offset, limi
 	if userID > 0 {
 		tx = tx.Where("user_id = ?", userID)
 	}
+	q = strings.TrimSpace(q)
+	if q != "" {
+		like := "%" + q + "%"
+		tx = tx.Joins("LEFT JOIN users ON users.id = user_subscriptions.user_id").
+			Where("users.email ILIKE ? OR users.name ILIKE ? OR CAST(user_subscriptions.id AS TEXT) ILIKE ?", like, like, like)
+	}
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	orderBy = sanitizeOrder(orderBy, "id")
 	orderDir = sanitizeDir(orderDir)
+	orderCol := orderBy
+	if orderBy == "id" || orderBy == "status" || orderBy == "start_date" || orderBy == "end_date" || orderBy == "created_at" {
+		orderCol = "user_subscriptions." + orderBy
+	}
 	var rows []entity.UserSubscription
-	err := tx.Preload("SubscriptionPlan").Order(orderBy + " " + orderDir).Offset(offset).Limit(limit).Find(&rows).Error
+	err := tx.Preload("SubscriptionPlan").Preload("User").
+		Order(orderCol + " " + orderDir).
+		Offset(offset).Limit(limit).Find(&rows).Error
 	return rows, total, err
 }
 
@@ -179,6 +201,14 @@ func (r *userSubscriptionRepository) HasActive(ctx context.Context, userID uint,
 	var n int64
 	err := r.db.WithContext(ctx).Model(&entity.UserSubscription{}).
 		Where("user_id = ? AND status = ? AND end_date > ?", userID, entity.SubStatusActive, now).
+		Count(&n).Error
+	return n > 0, err
+}
+
+func (r *userSubscriptionRepository) HasUsedTrial(ctx context.Context, userID uint) (bool, error) {
+	var n int64
+	err := r.db.WithContext(ctx).Model(&entity.UserSubscription{}).
+		Where("user_id = ? AND is_trial = ?", userID, true).
 		Count(&n).Error
 	return n > 0, err
 }

@@ -25,6 +25,7 @@ func ArticleToList(a *entity.Article) articlev1.ArticleListRes {
 		UserID:     a.UserID,
 		CategoryID: a.CategoryID,
 		Featured:   a.Featured,
+		Views:      a.Views,
 		CreatedAt:  a.CreatedAt,
 		UpdatedAt:  a.UpdatedAt,
 	}
@@ -51,6 +52,7 @@ func ArticleToDetail(a *entity.Article) articlev1.ArticleDetailRes {
 		UserID:     a.UserID,
 		CategoryID: a.CategoryID,
 		Featured:   a.Featured,
+		Views:      a.Views,
 		CreatedAt:  a.CreatedAt,
 		UpdatedAt:  a.UpdatedAt,
 	}

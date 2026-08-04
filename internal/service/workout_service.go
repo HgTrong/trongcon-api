@@ -17,9 +17,11 @@ var ErrWorkoutNotFound = errors.New("workout not found")
 type WorkoutService interface {
 	Create(ctx context.Context, req *workoutv1.CreateReq) (*workoutv1.CreateRes, error)
 	GetByID(ctx context.Context, id uint) (*workoutv1.GetRes, error)
+	AdminGetByID(ctx context.Context, id uint) (*workoutv1.GetRes, error)
 	Update(ctx context.Context, id uint, req *workoutv1.UpdateReq) (*workoutv1.UpdateRes, error)
 	Delete(ctx context.Context, id uint) error
 	List(ctx context.Context, req *workoutv1.ListReq) (*workoutv1.ListRes, error)
+	AdminList(ctx context.Context, req *workoutv1.ListReq) (*workoutv1.ListRes, error)
 }
 
 type workoutService struct {
@@ -27,6 +29,7 @@ type workoutService struct {
 	exerciseRepo repository.ExerciseRepository
 	userRepo     repository.UserRepository
 	trainerRepo  repository.TrainerProfileRepository
+	growth       PTGrowthTracker
 }
 
 func NewWorkoutService(
@@ -34,8 +37,9 @@ func NewWorkoutService(
 	exerciseRepo repository.ExerciseRepository,
 	userRepo repository.UserRepository,
 	trainerRepo repository.TrainerProfileRepository,
+	growth PTGrowthTracker,
 ) WorkoutService {
-	return &workoutService{repo: repo, exerciseRepo: exerciseRepo, userRepo: userRepo, trainerRepo: trainerRepo}
+	return &workoutService{repo: repo, exerciseRepo: exerciseRepo, userRepo: userRepo, trainerRepo: trainerRepo, growth: growth}
 }
 
 func normalizeSets(v int) int {
@@ -84,6 +88,7 @@ func toWorkoutAPIRes(w *entity.Workout) workoutv1.WorkoutRes {
 		UserID:      w.UserID,
 		OwnerUserID: w.OwnerUserID,
 		IsPublic:    w.IsPublic,
+		Views:       w.Views,
 		CreatedAt:   w.CreatedAt,
 		UpdatedAt:   w.UpdatedAt,
 		Items:       make([]workoutv1.WorkoutItemRes, 0, len(w.Items)),
@@ -154,9 +159,27 @@ func (s *workoutService) GetByID(ctx context.Context, id uint) (*workoutv1.GetRe
 		}
 		return nil, err
 	}
-	// Public/admin Get exposes catalog workouts (owner null) or published PT ones.
+	// Public Get exposes catalog workouts (owner null) or published PT ones.
 	if w.OwnerUserID != nil && !w.IsPublic {
 		return nil, ErrWorkoutNotFound
+	}
+	if views, err := s.repo.IncrementViews(ctx, w.ID); err == nil {
+		w.Views = views
+	}
+	if s.growth != nil && w.UserID > 0 {
+		s.growth.TrackContentView(ctx, ContentTypeWorkout, w.ID, w.Title, w.UserID, 0)
+	}
+	return &workoutv1.GetRes{Workout: s.withAuthor(ctx, w, toWorkoutAPIRes(w))}, nil
+}
+
+// AdminGetByID returns any workout (including private PT drafts) without bumping views.
+func (s *workoutService) AdminGetByID(ctx context.Context, id uint) (*workoutv1.GetRes, error) {
+	w, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrWorkoutNotFound
+		}
+		return nil, err
 	}
 	return &workoutv1.GetRes{Workout: s.withAuthor(ctx, w, toWorkoutAPIRes(w))}, nil
 }
@@ -169,9 +192,7 @@ func (s *workoutService) Update(ctx context.Context, id uint, req *workoutv1.Upd
 		}
 		return nil, err
 	}
-	if w.OwnerUserID != nil {
-		return nil, ErrWorkoutNotFound
-	}
+	// Admin may edit catalog rows and PT-owned workouts alike.
 
 	if req.Title != nil && strings.TrimSpace(*req.Title) != "" {
 		w.Title = strings.TrimSpace(*req.Title)
@@ -219,20 +240,16 @@ func (s *workoutService) Update(ctx context.Context, id uint, req *workoutv1.Upd
 }
 
 func (s *workoutService) Delete(ctx context.Context, id uint) error {
-	w, err := s.repo.GetByID(ctx, id)
-	if err != nil {
+	if _, err := s.repo.GetByID(ctx, id); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrWorkoutNotFound
 		}
 		return err
 	}
-	if w.OwnerUserID != nil {
-		return ErrWorkoutNotFound
-	}
 	return s.repo.Delete(ctx, id)
 }
 
-func (s *workoutService) List(ctx context.Context, req *workoutv1.ListReq) (*workoutv1.ListRes, error) {
+func (s *workoutService) listPage(ctx context.Context, req *workoutv1.ListReq, catalogOnly bool) (*workoutv1.ListRes, error) {
 	page, limit := req.Page, req.Limit
 	if page < 1 {
 		page = 1
@@ -260,7 +277,14 @@ func (s *workoutService) List(ctx context.Context, req *workoutv1.ListReq) (*wor
 	}
 	order := orderBy + " " + dir
 
-	list, total, err := s.repo.ListCatalog(ctx, offset, limit, order, strings.TrimSpace(req.Q), strings.TrimSpace(req.Difficulty), strings.TrimSpace(req.Goal))
+	var list []entity.Workout
+	var total int64
+	var err error
+	if catalogOnly {
+		list, total, err = s.repo.ListCatalog(ctx, offset, limit, order, strings.TrimSpace(req.Q), strings.TrimSpace(req.Difficulty), strings.TrimSpace(req.Goal))
+	} else {
+		list, total, err = s.repo.ListAll(ctx, offset, limit, order, strings.TrimSpace(req.Q), strings.TrimSpace(req.Difficulty), strings.TrimSpace(req.Goal))
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -269,4 +293,12 @@ func (s *workoutService) List(ctx context.Context, req *workoutv1.ListReq) (*wor
 		data = append(data, s.withAuthor(ctx, &list[i], toWorkoutAPIRes(&list[i])))
 	}
 	return &workoutv1.ListRes{Total: total, Data: data}, nil
+}
+
+func (s *workoutService) List(ctx context.Context, req *workoutv1.ListReq) (*workoutv1.ListRes, error) {
+	return s.listPage(ctx, req, true)
+}
+
+func (s *workoutService) AdminList(ctx context.Context, req *workoutv1.ListReq) (*workoutv1.ListRes, error) {
+	return s.listPage(ctx, req, false)
 }

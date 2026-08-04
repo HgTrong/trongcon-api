@@ -31,17 +31,20 @@ type articleService struct {
 	articleRepo  repository.ArticleRepository
 	categoryRepo repository.CategoryRepository
 	userRepo     repository.UserRepository
+	trainerRepo  repository.TrainerProfileRepository
+	growth       PTGrowthTracker
 }
 
 func NewArticleService(
 	articleRepo repository.ArticleRepository,
 	categoryRepo repository.CategoryRepository,
 	userRepo repository.UserRepository,
+	trainerRepo repository.TrainerProfileRepository,
+	growth PTGrowthTracker,
 ) ArticleService {
 	return &articleService{
-		articleRepo:  articleRepo,
-		categoryRepo: categoryRepo,
-		userRepo:     userRepo,
+		articleRepo: articleRepo, categoryRepo: categoryRepo, userRepo: userRepo,
+		trainerRepo: trainerRepo, growth: growth,
 	}
 }
 
@@ -112,7 +115,10 @@ func (s *articleService) GetByID(ctx context.Context, id uint) (*articlev1.GetRe
 		}
 		return nil, err
 	}
-	return &articlev1.GetRes{Article: apimap.ArticleToDetail(a)}, nil
+	s.attachArticleAuthor(ctx, a)
+	detail := apimap.ArticleToDetail(a)
+	detail.Author = authorForUserID(ctx, s.trainerRepo, s.userRepo, a.UserID)
+	return &articlev1.GetRes{Article: detail}, nil
 }
 
 func (s *articleService) attachArticleAuthor(ctx context.Context, a *entity.Article) {
@@ -147,8 +153,16 @@ func (s *articleService) GetBySlug(ctx context.Context, slug string) (*articlev1
 	if a.Category.ID == 0 || a.Category.Status != "active" {
 		return nil, ErrArticleNotFound
 	}
+	if views, err := s.articleRepo.IncrementViews(ctx, a.ID); err == nil {
+		a.Views = views
+	}
+	if s.growth != nil {
+		s.growth.TrackContentView(ctx, ContentTypeArticle, a.ID, a.Title, a.UserID, 0)
+	}
 	s.attachArticleAuthor(ctx, a)
-	return &articlev1.GetRes{Article: apimap.ArticleToDetail(a)}, nil
+	detail := apimap.ArticleToDetail(a)
+	detail.Author = authorForUserID(ctx, s.trainerRepo, s.userRepo, a.UserID)
+	return &articlev1.GetRes{Article: detail}, nil
 }
 
 func (s *articleService) Update(ctx context.Context, id uint, req *articlev1.UpdateReq) (*articlev1.UpdateRes, error) {
@@ -266,7 +280,9 @@ func (s *articleService) List(ctx context.Context, req *articlev1.ListReq) (*art
 	s.attachArticleAuthors(ctx, list)
 	data := make([]articlev1.ArticleListRes, 0, len(list))
 	for i := range list {
-		data = append(data, apimap.ArticleToList(&list[i]))
+		row := apimap.ArticleToList(&list[i])
+		row.Author = authorForUserID(ctx, s.trainerRepo, s.userRepo, list[i].UserID)
+		data = append(data, row)
 	}
 	return &articlev1.ListRes{Total: total, Data: data}, nil
 }
@@ -309,7 +325,9 @@ func (s *articleService) ListPublic(ctx context.Context, req *articlev1.ListReq)
 	s.attachArticleAuthors(ctx, list)
 	data := make([]articlev1.ArticleListRes, 0, len(list))
 	for i := range list {
-		data = append(data, apimap.ArticleToList(&list[i]))
+		row := apimap.ArticleToList(&list[i])
+		row.Author = authorForUserID(ctx, s.trainerRepo, s.userRepo, list[i].UserID)
+		data = append(data, row)
 	}
 	return &articlev1.ListRes{Total: total, Data: data}, nil
 }

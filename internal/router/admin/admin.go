@@ -15,14 +15,21 @@ import (
 	uploadctl "trongcon-api/internal/controller/upload"
 	userctl "trongcon-api/internal/controller/user"
 	statsctl "trongcon-api/internal/controller/stats"
+	revenuectl "trongcon-api/internal/controller/revenue"
 	planctl "trongcon-api/internal/controller/subscription_plan"
 	subctl "trongcon-api/internal/controller/user_subscription"
+	gymcommercectl "trongcon-api/internal/controller/gym_commerce"
+	emailtemplatectl "trongcon-api/internal/controller/email_template"
+	faqctl "trongcon-api/internal/controller/faq"
 	adminarticle "trongcon-api/internal/router/admin/article"
 	adminbranch "trongcon-api/internal/router/admin/branch"
 	admincategory "trongcon-api/internal/router/admin/category"
+	adminemailtemplate "trongcon-api/internal/router/admin/email_template"
 	adminequipment "trongcon-api/internal/router/admin/equipment"
 	adminexercise "trongcon-api/internal/router/admin/exercise"
+	adminfaq "trongcon-api/internal/router/admin/faq"
 	adminfood "trongcon-api/internal/router/admin/food"
+	admingymcommerce "trongcon-api/internal/router/admin/gym_commerce"
 	adminmealplan "trongcon-api/internal/router/admin/meal_plan"
 	adminroutine "trongcon-api/internal/router/admin/routine"
 	admintrainer "trongcon-api/internal/router/admin/trainer"
@@ -32,6 +39,7 @@ import (
 	adminupload "trongcon-api/internal/router/admin/upload"
 	adminuser "trongcon-api/internal/router/admin/user"
 	adminstats "trongcon-api/internal/router/admin/stats"
+	adminrevenue "trongcon-api/internal/router/admin/revenue"
 	adminsubplan "trongcon-api/internal/router/admin/subscription_plan"
 	adminusersub "trongcon-api/internal/router/admin/user_subscription"
 
@@ -52,9 +60,13 @@ type Controllers struct {
 	Tools            *toolsctl.Controller
 	Upload           *uploadctl.Controller
 	Stats            *statsctl.Controller
+	Revenue          *revenuectl.Controller
 	Gym              *gymctl.Controller
 	SubscriptionPlan *planctl.Controller
 	UserSubscription *subctl.Controller
+	GymCommerce      *gymcommercectl.Controller
+	EmailTemplate    *emailtemplatectl.Controller
+	FAQ              *faqctl.Controller
 }
 
 func Register(r *gin.RouterGroup, c Controllers) {
@@ -71,6 +83,9 @@ func Register(r *gin.RouterGroup, c Controllers) {
 	admintools.Register(r, c.Tools)
 	adminupload.Register(r, c.Upload)
 	adminstats.Register(r, c.Stats)
+	if c.Revenue != nil {
+		adminrevenue.Register(r, c.Revenue)
+	}
 	if c.Gym != nil {
 		adminbranch.Register(r, c.Gym)
 		admintrainer.Register(r, c.Gym)
@@ -80,5 +95,14 @@ func Register(r *gin.RouterGroup, c Controllers) {
 	}
 	if c.UserSubscription != nil {
 		adminusersub.Register(r, c.UserSubscription)
+	}
+	if c.GymCommerce != nil {
+		admingymcommerce.Register(r, c.GymCommerce)
+	}
+	if c.EmailTemplate != nil {
+		adminemailtemplate.Register(r, c.EmailTemplate)
+	}
+	if c.FAQ != nil {
+		adminfaq.Register(r, c.FAQ)
 	}
 }

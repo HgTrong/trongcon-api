@@ -24,6 +24,14 @@ func RequireSuper(jwtSecret string) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 			return
 		}
+		purpose := claims.Purpose
+		if purpose == "" {
+			purpose = jwtutil.PurposeAccess
+		}
+		if purpose != jwtutil.PurposeAccess {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+			return
+		}
 		ok := false
 		for _, r := range claims.Roles {
 			if r == entity.RoleSuper {

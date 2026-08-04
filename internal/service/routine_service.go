@@ -29,10 +29,11 @@ type routineService struct {
 	workoutRepo repository.WorkoutRepository
 	userRepo    repository.UserRepository
 	trainerRepo repository.TrainerProfileRepository
+	growth      PTGrowthTracker
 }
 
-func NewRoutineService(repo repository.RoutineRepository, workoutRepo repository.WorkoutRepository, userRepo repository.UserRepository, trainerRepo repository.TrainerProfileRepository) RoutineService {
-	return &routineService{repo: repo, workoutRepo: workoutRepo, userRepo: userRepo, trainerRepo: trainerRepo}
+func NewRoutineService(repo repository.RoutineRepository, workoutRepo repository.WorkoutRepository, userRepo repository.UserRepository, trainerRepo repository.TrainerProfileRepository, growth PTGrowthTracker) RoutineService {
+	return &routineService{repo: repo, workoutRepo: workoutRepo, userRepo: userRepo, trainerRepo: trainerRepo, growth: growth}
 }
 
 func buildRoutineWorkouts(ctx context.Context, inputs []routinev1.RoutineItemInput, workoutRepo repository.WorkoutRepository) ([]entity.RoutineWorkout, error) {
@@ -96,6 +97,7 @@ func toRoutineRes(rt *entity.Routine) routinev1.RoutineRes {
 		Difficulty:  rt.Difficulty,
 		UserID:      rt.UserID,
 		IsPublic:    rt.IsPublic,
+		Views:       rt.Views,
 		CreatedAt:   rt.CreatedAt,
 		UpdatedAt:   rt.UpdatedAt,
 		Items:       make([]routinev1.RoutineWorkoutRes, 0, len(rt.Items)),
@@ -167,6 +169,12 @@ func (s *routineService) GetByIDPublic(ctx context.Context, id uint) (*routinev1
 	}
 	if !rt.IsPublic {
 		return nil, ErrRoutineNotFound
+	}
+	if views, err := s.repo.IncrementViews(ctx, rt.ID); err == nil {
+		rt.Views = views
+	}
+	if s.growth != nil {
+		s.growth.TrackContentView(ctx, ContentTypeRoutine, rt.ID, rt.Title, rt.UserID, 0)
 	}
 	res := toRoutineRes(rt)
 	res.Author = authorForUserID(ctx, s.trainerRepo, s.userRepo, rt.UserID)

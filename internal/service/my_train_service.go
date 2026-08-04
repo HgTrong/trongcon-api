@@ -59,6 +59,7 @@ func toMyWorkoutRes(w *entity.Workout) mytrainv1.WorkoutRes {
 		UserID:      w.UserID,
 		OwnerUserID: w.OwnerUserID,
 		IsPublic:    w.IsPublic,
+		Views:       w.Views,
 		CreatedAt:   w.CreatedAt,
 		UpdatedAt:   w.UpdatedAt,
 		Items:       make([]mytrainv1.WorkoutItemRes, 0, len(w.Items)),
@@ -136,7 +137,7 @@ func (s *myTrainService) CloneFromCatalog(ctx context.Context, userID uint, req 
 		}
 		return nil, err
 	}
-	if src.OwnerUserID != nil {
+	if src.OwnerUserID != nil && !src.IsPublic {
 		return nil, ErrWorkoutNotFound
 	}
 	items := make([]entity.WorkoutItem, 0, len(src.Items))
@@ -195,6 +196,16 @@ func (s *myTrainService) UpdateWorkout(ctx context.Context, userID, id uint, req
 	}
 	if req.IsPublic != nil {
 		w.IsPublic = *req.IsPublic
+		if *req.IsPublic {
+			// Published under this PT — keep authorship; personal ownership stays for edit rights.
+			if w.UserID == 0 {
+				w.UserID = userID
+			}
+		} else if w.OwnerUserID == nil && w.UserID == userID {
+			// Unpublish authored catalog row → personal draft (drops from public catalog-only path).
+			owner := userID
+			w.OwnerUserID = &owner
+		}
 	}
 	if err := s.workoutRepo.Update(ctx, w); err != nil {
 		return nil, err

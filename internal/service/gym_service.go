@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -52,6 +53,7 @@ type gymService struct {
 	workoutRepo  repository.WorkoutRepository
 	routineRepo  repository.RoutineRepository
 	mealPlanRepo repository.MealPlanRepository
+	growth       PTGrowthTracker
 }
 
 func NewGymService(
@@ -62,6 +64,7 @@ func NewGymService(
 	workoutRepo repository.WorkoutRepository,
 	routineRepo repository.RoutineRepository,
 	mealPlanRepo repository.MealPlanRepository,
+	growth PTGrowthTracker,
 ) GymService {
 	return &gymService{
 		branchRepo:   branchRepo,
@@ -71,6 +74,7 @@ func NewGymService(
 		workoutRepo:  workoutRepo,
 		routineRepo:  routineRepo,
 		mealPlanRepo: mealPlanRepo,
+		growth:       growth,
 	}
 }
 
@@ -160,11 +164,66 @@ func (s *gymService) ListTrainerMealPlans(ctx context.Context, trainerID uint) (
 	return &mealplanv1.ListRes{Total: total, Data: data}, nil
 }
 
+func normalizeBranchGallery(urls []string) []string {
+	out := make([]string, 0, len(urls))
+	seen := map[string]struct{}{}
+	for _, u := range urls {
+		u = strings.TrimSpace(u)
+		if u == "" {
+			continue
+		}
+		if _, ok := seen[u]; ok {
+			continue
+		}
+		seen[u] = struct{}{}
+		out = append(out, u)
+	}
+	return out
+}
+
+func encodeBranchGallery(urls []string) string {
+	urls = normalizeBranchGallery(urls)
+	if len(urls) == 0 {
+		return "[]"
+	}
+	b, err := json.Marshal(urls)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
+}
+
+func decodeBranchGallery(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return []string{}
+	}
+	var urls []string
+	if err := json.Unmarshal([]byte(raw), &urls); err != nil {
+		return []string{}
+	}
+	return normalizeBranchGallery(urls)
+}
+
+func coverFromGallery(imageURL string, gallery []string) string {
+	imageURL = strings.TrimSpace(imageURL)
+	if imageURL != "" {
+		return imageURL
+	}
+	if len(gallery) > 0 {
+		return gallery[0]
+	}
+	return ""
+}
+
 func toBranchRes(b *entity.GymBranch) gymv1.BranchRes {
+	gallery := decodeBranchGallery(b.GalleryURLs)
+	cover := coverFromGallery(b.ImageURL, gallery)
 	return gymv1.BranchRes{
-		ID: b.ID, Name: b.Name, Slug: b.Slug, Address: b.Address, City: b.City,
+		ID: b.ID, Name: b.Name, Slug: b.Slug, Address: b.Address, District: b.District, City: b.City,
 		Phone: b.Phone, Email: b.Email, Hours: b.Hours, Description: b.Description,
-		ImageURL: b.ImageURL, IsActive: b.IsActive, SortOrder: b.SortOrder,
+		ImageURL: cover, Gallery: gallery, Latitude: b.Latitude, Longitude: b.Longitude,
+		IsActive: b.IsActive, SortOrder: b.SortOrder,
 		CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 	}
 }
@@ -175,6 +234,7 @@ func toTrainerRes(t *entity.TrainerProfile) gymv1.TrainerRes {
 		DisplayName: t.DisplayName, Title: t.Title, Bio: t.Bio,
 		Specialties: t.Specialties, Certifications: t.Certifications,
 		YearsExperience: t.YearsExperience, IsPublic: t.IsPublic,
+		Views: t.Views,
 		CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
 	}
 	if t.User.ID > 0 {
@@ -230,12 +290,17 @@ func (s *gymService) CreateBranch(ctx context.Context, req *gymv1.CreateBranchRe
 	if req.IsActive != nil {
 		active = *req.IsActive
 	}
+	gallery := normalizeBranchGallery(req.Gallery)
+	cover := coverFromGallery(req.ImageURL, gallery)
 	b := &entity.GymBranch{
 		Name: strings.TrimSpace(req.Name), Slug: slugVal,
-		Address: strings.TrimSpace(req.Address), City: strings.TrimSpace(req.City),
+		Address: strings.TrimSpace(req.Address), District: strings.TrimSpace(req.District),
+		City: strings.TrimSpace(req.City),
 		Phone: strings.TrimSpace(req.Phone), Email: strings.TrimSpace(req.Email),
 		Hours: strings.TrimSpace(req.Hours), Description: strings.TrimSpace(req.Description),
-		ImageURL: strings.TrimSpace(req.ImageURL), IsActive: active, SortOrder: req.SortOrder,
+		ImageURL: cover, GalleryURLs: encodeBranchGallery(gallery),
+		Latitude: req.Latitude, Longitude: req.Longitude,
+		IsActive: active, SortOrder: req.SortOrder,
 	}
 	if err := s.branchRepo.Create(ctx, b); err != nil {
 		return nil, err
@@ -288,6 +353,9 @@ func (s *gymService) UpdateBranch(ctx context.Context, id uint, req *gymv1.Updat
 	if req.Address != nil {
 		b.Address = strings.TrimSpace(*req.Address)
 	}
+	if req.District != nil {
+		b.District = strings.TrimSpace(*req.District)
+	}
 	if req.City != nil {
 		b.City = strings.TrimSpace(*req.City)
 	}
@@ -303,8 +371,29 @@ func (s *gymService) UpdateBranch(ctx context.Context, id uint, req *gymv1.Updat
 	if req.Description != nil {
 		b.Description = strings.TrimSpace(*req.Description)
 	}
+	if req.Gallery != nil {
+		gallery := normalizeBranchGallery(*req.Gallery)
+		b.GalleryURLs = encodeBranchGallery(gallery)
+		if req.ImageURL == nil {
+			b.ImageURL = coverFromGallery(b.ImageURL, gallery)
+		}
+	}
 	if req.ImageURL != nil {
 		b.ImageURL = strings.TrimSpace(*req.ImageURL)
+		if b.ImageURL == "" {
+			b.ImageURL = coverFromGallery("", decodeBranchGallery(b.GalleryURLs))
+		}
+	}
+	if req.ClearCoords {
+		b.Latitude = nil
+		b.Longitude = nil
+	} else {
+		if req.Latitude != nil {
+			b.Latitude = req.Latitude
+		}
+		if req.Longitude != nil {
+			b.Longitude = req.Longitude
+		}
 	}
 	if req.IsActive != nil {
 		b.IsActive = *req.IsActive
@@ -464,14 +553,20 @@ func (s *gymService) GetTrainer(ctx context.Context, id uint) (*gymv1.GetTrainer
 }
 
 func (s *gymService) GetTrainerPublic(ctx context.Context, id uint) (*gymv1.GetTrainerRes, error) {
-	res, err := s.GetTrainer(ctx, id)
+	t, err := s.trainerRepo.GetByID(ctx, id)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrTrainerNotFound
+		}
 		return nil, err
 	}
-	if !res.Trainer.IsPublic {
+	if !t.IsPublic {
 		return nil, ErrTrainerNotFound
 	}
-	return res, nil
+	if views, err := s.trainerRepo.IncrementViews(ctx, t.ID); err == nil {
+		t.Views = views
+	}
+	return &gymv1.GetTrainerRes{Trainer: toTrainerRes(t)}, nil
 }
 
 func (s *gymService) UpdateTrainer(ctx context.Context, id uint, req *gymv1.UpdateTrainerReq) (*gymv1.UpdateTrainerRes, error) {

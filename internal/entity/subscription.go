@@ -5,13 +5,19 @@ import "time"
 const (
 	PlanKindPremium = "premium"
 
-	SubStatusPending   = "pending"
-	SubStatusActive    = "active"
-	SubStatusExpired   = "expired"
-	SubStatusCanceled  = "canceled"
+	SubStatusPending  = "pending"
+	SubStatusActive   = "active"
+	SubStatusExpired  = "expired"
+	SubStatusCanceled = "canceled"
 
 	PaymentProviderPayPal = "paypal"
 	PaymentProviderStripe = "stripe"
+	PaymentProviderVNPay  = "vnpay"
+	PaymentProviderTrial  = "trial"
+	PaymentProviderMembership = "membership" // complimentary Premium from gym pass
+
+
+	PremiumTrialDays = 7
 
 	PHTypeUserSubscription = "user_subscription"
 	PHStatusSucceeded      = "succeeded"
@@ -27,7 +33,7 @@ type SubscriptionPlan struct {
 	Title          string  `json:"title" gorm:"type:text"`
 	Description    string  `json:"description" gorm:"type:text"` // JSON array of bullet strings
 	Price          float64 `json:"price" gorm:"type:decimal(10,2);not null;default:0"`
-	Currency       string  `json:"currency" gorm:"type:varchar(10);not null;default:'USD'"`
+	Currency       string  `json:"currency" gorm:"type:varchar(10);not null;default:'VND'"`
 	DurationMonths int     `json:"duration_months" gorm:"not null;default:1"`
 	IsActive       bool    `json:"is_active" gorm:"not null;default:true"`
 	SortOrder      int     `json:"sort_order" gorm:"not null;default:0"`
@@ -49,12 +55,15 @@ type UserSubscription struct {
 	OriginalPrice      float64    `json:"original_price" gorm:"type:decimal(10,2);not null;default:0"`
 	FinalPrice         float64    `json:"final_price" gorm:"type:decimal(10,2);not null;default:0"`
 	Status             string     `json:"status" gorm:"type:varchar(20);not null;default:'pending';index"`
-	PaymentProvider    string     `json:"payment_provider" gorm:"type:varchar(20);not null;default:'paypal'"`
+	PaymentProvider    string     `json:"payment_provider" gorm:"type:varchar(20);not null;default:'vnpay'"`
 	PayPalOrderID      string     `json:"paypal_order_id" gorm:"type:varchar(255);index"`
 	PayPalCaptureID    string     `json:"paypal_capture_id" gorm:"type:varchar(255);index"`
 	StripeCheckoutSessionID string `json:"stripe_checkout_session_id" gorm:"type:varchar(255);index"`
 	StripePaymentIntentID   string `json:"stripe_payment_intent_id" gorm:"type:varchar(255);index"`
-	Currency           string     `json:"currency" gorm:"type:varchar(10);default:'USD'"`
+	VnpTxnRef          string     `json:"vnp_txn_ref" gorm:"type:varchar(100);index"`
+	VnpTransactionNo   string     `json:"vnp_transaction_no" gorm:"type:varchar(100);index"`
+	Currency           string     `json:"currency" gorm:"type:varchar(10);default:'VND'"`
+	IsTrial            bool       `json:"is_trial" gorm:"not null;default:false;index"`
 	CanceledAt         *time.Time `json:"canceled_at"`
 }
 
@@ -70,7 +79,7 @@ type PaymentHistory struct {
 	PaymentIntentID   string  `json:"payment_intent_id" gorm:"type:varchar(255);index"`
 	Price             float64 `json:"price" gorm:"type:decimal(10,2);not null;default:0"`
 	Amount            float64 `json:"amount" gorm:"type:decimal(10,2);not null;default:0"`
-	Currency          string  `json:"currency" gorm:"type:varchar(10);not null;default:'USD'"`
+	Currency          string  `json:"currency" gorm:"type:varchar(10);not null;default:'VND'"`
 	PaymentMethod     string  `json:"payment_method" gorm:"type:varchar(100)"`
 	PaymentType       string  `json:"payment_type" gorm:"type:varchar(100);index"`
 	Status            string  `json:"status" gorm:"type:varchar(50);index"`

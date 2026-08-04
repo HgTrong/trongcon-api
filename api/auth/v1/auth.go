@@ -17,6 +17,33 @@ type SignupReq struct {
 }
 
 type LoginRes struct {
-	Token string       `json:"token"`
+	Token string         `json:"token"`
 	User  userv1.UserRes `json:"user"`
+}
+
+type ForgotPasswordReq struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+type ForgotPasswordRes struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+type VerifyForgotOTPReq struct {
+	Email string `json:"email" binding:"required,email"`
+	OTP   string `json:"otp" binding:"required,min=4,max=16"`
+}
+
+type VerifyForgotOTPRes struct {
+	SecretToken string `json:"secret_token"`
+}
+
+type ResetPasswordReq struct {
+	SecretToken string `json:"secret_token" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required,min=6"`
+}
+
+type ResetPasswordRes struct {
+	Status string `json:"status"`
 }

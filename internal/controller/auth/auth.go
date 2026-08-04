@@ -61,15 +61,63 @@ func (c *Controller) Signup(ctx *gin.Context) {
 	ctx.JSON(http.StatusCreated, res)
 }
 
+func (c *Controller) ForgotPassword(ctx *gin.Context) {
+	var req authv1.ForgotPasswordReq
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: err.Error()})
+		return
+	}
+	res, err := c.svc.ForgotPassword(ctx.Request.Context(), &req)
+	if err != nil {
+		writeAuthErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, res)
+}
+
+func (c *Controller) VerifyForgotOTP(ctx *gin.Context) {
+	var req authv1.VerifyForgotOTPReq
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: err.Error()})
+		return
+	}
+	res, err := c.svc.VerifyForgotOTP(ctx.Request.Context(), &req)
+	if err != nil {
+		writeAuthErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, res)
+}
+
+func (c *Controller) ResetPassword(ctx *gin.Context) {
+	var req authv1.ResetPasswordReq
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: err.Error()})
+		return
+	}
+	res, err := c.svc.ResetPassword(ctx.Request.Context(), &req)
+	if err != nil {
+		writeAuthErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, res)
+}
+
 func writeAuthErr(ctx *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrEmailExists):
-		ctx.JSON(http.StatusConflict, swagger.ErrBody{Error: err.Error()})
+		ctx.JSON(http.StatusConflict, swagger.ErrBody{Error: "Email đã được sử dụng"})
 	case errors.Is(err, service.ErrInvalidCredentials):
-		ctx.JSON(http.StatusUnauthorized, swagger.ErrBody{Error: err.Error()})
+		ctx.JSON(http.StatusUnauthorized, swagger.ErrBody{Error: "Email hoặc mật khẩu không đúng"})
 	case errors.Is(err, service.ErrNotSuper):
-		ctx.JSON(http.StatusForbidden, swagger.ErrBody{Error: err.Error()})
+		ctx.JSON(http.StatusForbidden, swagger.ErrBody{Error: "Tài khoản không có quyền quản trị"})
+	case errors.Is(err, service.ErrInvalidOTP):
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: "Mã OTP không hợp lệ hoặc đã hết hạn"})
+	case errors.Is(err, service.ErrInvalidResetToken):
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: "Phiên đặt lại mật khẩu không hợp lệ hoặc đã hết hạn"})
+	case errors.Is(err, service.ErrSMTPDisabled), errors.Is(err, service.ErrEmailTemplateNotFound), errors.Is(err, service.ErrEmailTemplateInactive):
+		ctx.JSON(http.StatusServiceUnavailable, swagger.ErrBody{Error: "Hệ thống gửi email tạm thời không khả dụng"})
 	default:
-		ctx.JSON(http.StatusInternalServerError, swagger.ErrBody{Error: err.Error()})
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: "Yêu cầu không hợp lệ"})
 	}
 }

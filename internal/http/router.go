@@ -62,6 +62,8 @@ func NewRouter(cfg config.Config, deps Deps) *gin.Engine {
 			Enrollment:   deps.Enrollment,
 			AI:           deps.AI,
 			Subscription: deps.Subscription,
+			Upload:       deps.Admin.Upload,
+			GymCommerce:  deps.Admin.GymCommerce,
 		}, cfg.JWTSecret, deps.Premium)
 
 		publicrouter.Register(v1, deps.Public, cfg.JWTSecret, deps.Premium)

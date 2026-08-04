@@ -10,6 +10,7 @@ type Article struct {
 	Video      string   `json:"video" gorm:"type:varchar(512)"`
 	Content    string   `json:"content" gorm:"type:text;not null"`
 	Featured   bool     `json:"featured" gorm:"default:false;index"`
+	Views      int64    `json:"views" gorm:"not null;default:0"`
 	UserID     uint     `json:"user_id" gorm:"not null;index"`
 	CategoryID uint     `json:"category_id" gorm:"not null;index"`
 	User       User     `json:"user,omitempty" gorm:"foreignKey:UserID"`
