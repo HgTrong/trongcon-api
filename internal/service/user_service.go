@@ -98,6 +98,7 @@ func (s *userService) Create(ctx context.Context, req *v1.CreateReq) (*v1.Create
 		Name:         name,
 		FirstName:    req.FirstName,
 		LastName:     req.LastName,
+		DateOfBirth:  req.DateOfBirth,
 		Gender:       req.Gender,
 		Language:     lang,
 		AccountType:  at,
@@ -159,6 +160,9 @@ func (s *userService) Update(ctx context.Context, id uint, req *v1.UpdateReq) (*
 	}
 	u.FirstName = req.FirstName
 	u.LastName = req.LastName
+	if req.DateOfBirth != nil {
+		u.DateOfBirth = req.DateOfBirth
+	}
 	if req.Gender != "" {
 		u.Gender = req.Gender
 	}
@@ -311,7 +315,7 @@ func (s *userService) List(ctx context.Context, req *v1.ListUsersReq) (*v1.ListU
 	}
 	order := orderBy + " " + dir
 
-	list, total, err := s.repo.List(ctx, offset, limit, order)
+	list, total, err := s.repo.List(ctx, offset, limit, order, req.Q)
 	if err != nil {
 		return nil, err
 	}

@@ -29,9 +29,23 @@ type GymCommerceService interface {
 	SetPlanHighlight(ctx context.Context, id uint, highlighted bool) (*gcv1.MembershipPlanRes, error)
 
 	// Admin — user memberships
-	ListUserGymMembershipsAdmin(ctx context.Context, page, limit int, status string, userID uint) (*gcv1.ListRes, error)
+	ListUserGymMembershipsAdmin(ctx context.Context, page, limit int, status string, userID uint, from, to *time.Time) (*gcv1.ListRes, error)
 	AdminActivateMembership(ctx context.Context, membershipID uint) (*gcv1.GymMembershipRes, error)
 	AdminCancelMembership(ctx context.Context, membershipID uint) (*gcv1.GymMembershipRes, error)
+	// AdminCreateGymMembership records a cash sale at the front desk: creates the
+	// membership and activates it immediately, no payment gateway involved.
+	AdminCreateGymMembership(ctx context.Context, userID, planID uint) (*gcv1.GymMembershipRes, error)
+	// AdminCreateUserPTPackage is the PT-package equivalent — a walk-in who also
+	// signs up with a trainer at the counter, cash paid, active immediately.
+	AdminCreateUserPTPackage(ctx context.Context, userID, packageID uint) (*gcv1.UserPTPackageRes, error)
+
+	// Admin — PT session review queue (fallback when the student never confirms in-app)
+	AdminListPendingSessionReviews(ctx context.Context, page, limit int) (*gcv1.ListRes, error)
+	AdminApproveSessionOffer(ctx context.Context, offerID uint) (*gcv1.SessionOfferRes, error)
+	AdminRejectSessionOffer(ctx context.Context, offerID uint) (*gcv1.SessionOfferRes, error)
+	// AdminUndoSessionApproval reverses a mistaken approve — blocked once the
+	// earning has been paid out, since that needs a manual adjustment instead.
+	AdminUndoSessionApproval(ctx context.Context, offerID uint) (*gcv1.SessionOfferRes, error)
 	AdminSetPTEarningPaidOut(ctx context.Context, earningID uint, paid bool) error
 
 	// Admin — group classes
@@ -50,9 +64,9 @@ type GymCommerceService interface {
 	UpdateRevenueShare(ctx context.Context, req *gcv1.RevenueShareReq) (*gcv1.RevenueShareRes, error)
 
 	// Admin — PT earnings / packages catalog / sold packages
-	ListPTEarningsAdmin(ctx context.Context, page, limit int, trainerProfileID uint) (*gcv1.EarningsSummaryRes, error)
+	ListPTEarningsAdmin(ctx context.Context, page, limit int, trainerProfileID uint, from, to *time.Time) (*gcv1.EarningsSummaryRes, error)
 	ListPTPackagesAdmin(ctx context.Context, page, limit int, q string, trainerProfileID uint) (*gcv1.ListRes, error)
-	ListUserPTPackagesAdmin(ctx context.Context, page, limit int, status string, trainerProfileID, userID uint) (*gcv1.ListRes, error)
+	ListUserPTPackagesAdmin(ctx context.Context, page, limit int, status string, trainerProfileID, userID uint, from, to *time.Time) (*gcv1.ListRes, error)
 	ListPTSessionsAdmin(ctx context.Context, userPTPackageID uint) (*gcv1.ListRes, error)
 
 	// User — gym membership checkout
@@ -63,7 +77,7 @@ type GymCommerceService interface {
 	MyMembership(ctx context.Context, userID uint) (*gcv1.MembershipMeRes, error)
 	IssueCheckInToken(ctx context.Context, userID uint) (*gcv1.CheckInTokenRes, error)
 	VerifyCheckIn(ctx context.Context, staffUserID uint, token string, branchID *uint, note string) (*gcv1.GymCheckInRes, error)
-	ListRecentCheckIns(ctx context.Context, limit int) (*gcv1.ListRes, error)
+	ListRecentCheckIns(ctx context.Context, limit int) (*gcv1.GymCheckInListRes, error)
 
 	// User — group classes
 	ListUpcomingClassSessions(ctx context.Context, page, limit int) (*gcv1.ListRes, error)
@@ -92,6 +106,7 @@ type GymCommerceService interface {
 	ListChatMessages(ctx context.Context, requesterUserID, userPTPackageID, afterID uint, limit int) (*gcv1.ChatMessagesRes, error)
 	SendChatMessage(ctx context.Context, requesterUserID, userPTPackageID uint, req *gcv1.SendChatMessageReq) (*gcv1.ChatMessageRes, error)
 	CreateSessionOffer(ctx context.Context, requesterUserID, userPTPackageID uint, req *gcv1.CreateSessionOfferReq) (*gcv1.SessionOfferRes, error)
+	LogSessionDirect(ctx context.Context, trainerUserID, userPTPackageID uint, req *gcv1.LogSessionDirectReq) (*gcv1.SessionOfferRes, error)
 	ListSessionOffers(ctx context.Context, requesterUserID, userPTPackageID uint) (*gcv1.ListRes, error)
 	AcceptSessionOffer(ctx context.Context, requesterUserID, userPTPackageID, offerID uint) (*gcv1.SessionOfferRes, error)
 	DeclineSessionOffer(ctx context.Context, requesterUserID, userPTPackageID, offerID uint) (*gcv1.SessionOfferRes, error)
@@ -115,6 +130,18 @@ type GymCommerceService interface {
 	AutoConfirmExpiredSessionProofs(ctx context.Context, olderThan time.Duration, limit int) (int, error)
 	ExpireStalePendingOffers(ctx context.Context, olderThan time.Duration) (int, error)
 	RunExpiryHousekeeping(ctx context.Context) error
+	// CancelStalePendingOrders cancels gym-membership and PT-package orders left
+	// "pending" (checkout opened but never paid) past olderThan.
+	CancelStalePendingOrders(ctx context.Context, olderThan time.Duration) (int, error)
+
+	// User — recurring (standing weekly) bookings
+	CreateRecurringBooking(ctx context.Context, studentUserID uint, req *gcv1.CreateRecurringBookingReq) (*gcv1.RecurringBookingRes, error)
+	ListMyRecurringBookingsAsStudent(ctx context.Context, studentUserID uint) (*gcv1.ListRes, error)
+	ListMyRecurringBookingsAsTrainer(ctx context.Context, trainerUserID uint) (*gcv1.ListRes, error)
+	CancelRecurringBooking(ctx context.Context, requesterUserID, id uint) error
+	// MaterializeRecurringBookings is the rolling-horizon cron entry point —
+	// keeps every active standing booking generated ~horizonDays ahead.
+	MaterializeRecurringBookings(ctx context.Context, horizonDays int) (int, error)
 
 	ConfigureOps(mailer MailerService, premium PremiumFromMembership, jwtSecret string, checkIns checkInStore)
 
@@ -131,6 +158,8 @@ type GymCommerceService interface {
 
 	// User — PT earnings
 	MyPTEarnings(ctx context.Context, trainerUserID uint, page, limit int) (*gcv1.EarningsSummaryRes, error)
+	MyTodayActivity(ctx context.Context, trainerUserID uint) (*gcv1.MyTodayActivityRes, error)
+	MarkStudentsSeen(ctx context.Context, trainerUserID uint) error
 
 	// Public
 	ListPublicPlans(ctx context.Context, page, limit int) (*gcv1.ListRes, error)
@@ -152,21 +181,22 @@ type gymCommerceService struct {
 	chatRepo       repository.PTPackageChatRepository
 	hoursRepo      repository.PTWorkingHoursRepository
 	blockedRepo    repository.PTBlockedSlotRepository
+	recurringRepo  repository.PTRecurringBookingRepository
 	statRepo       repository.PTContentStatRepository
 	attrRepo       repository.PTAttributionRepository
 	reviewRepo     repository.PTReviewRepository
 	growth         PTGrowthTracker
 	revShareRepo   repository.RevenueShareSettingRepository
 	earningRepo    repository.PTEarningRepository
-	trainerRepo     repository.TrainerProfileRepository
+	trainerRepo    repository.TrainerProfileRepository
 	userRepo       repository.UserRepository
-	vnpay           VNPayService
-	stripe          StripeService
-	mailer          MailerService
-	premiumGrant    PremiumFromMembership
-	jwtSecret       []byte
-	checkInCreate   checkInStore
-	vnpayCfgRet     struct {
+	vnpay          VNPayService
+	stripe         StripeService
+	mailer         MailerService
+	premiumGrant   PremiumFromMembership
+	jwtSecret      []byte
+	checkInCreate  checkInStore
+	vnpayCfgRet    struct {
 		Membership string
 		Package    string
 	}
@@ -176,6 +206,10 @@ type gymCommerceService struct {
 		PackageSuccess    string
 		PackageCancel     string
 	}
+	// db backs the transactional advisory-lock booking path (see BookSlot /
+	// materializeOccurrence) — the repo-per-entity pattern elsewhere doesn't
+	// give us a shared transaction, and slot booking needs one to be race-free.
+	db *gorm.DB
 }
 
 // NewGymCommerceService wires all repositories needed for the gym commerce module.
@@ -192,6 +226,7 @@ func NewGymCommerceService(
 	chatRepo repository.PTPackageChatRepository,
 	hoursRepo repository.PTWorkingHoursRepository,
 	blockedRepo repository.PTBlockedSlotRepository,
+	recurringRepo repository.PTRecurringBookingRepository,
 	statRepo repository.PTContentStatRepository,
 	attrRepo repository.PTAttributionRepository,
 	reviewRepo repository.PTReviewRepository,
@@ -208,15 +243,17 @@ func NewGymCommerceService(
 	membershipStripeCancelURL string,
 	packageStripeSuccessURL string,
 	packageStripeCancelURL string,
+	db *gorm.DB,
 ) GymCommerceService {
 	s := &gymCommerceService{
 		planRepo: planRepo, membRepo: membRepo, classRepo: classRepo, sessionRepo: sessionRepo,
 		bookingRepo: bookingRepo, ptPkgRepo: ptPkgRepo, userPtPkgRepo: userPtPkgRepo,
 		sessionLogRepo: sessionLogRepo, offerRepo: offerRepo, chatRepo: chatRepo,
-		hoursRepo: hoursRepo, blockedRepo: blockedRepo,
+		hoursRepo: hoursRepo, blockedRepo: blockedRepo, recurringRepo: recurringRepo,
 		statRepo: statRepo, attrRepo: attrRepo, reviewRepo: reviewRepo, growth: growth,
 		revShareRepo: revShareRepo, earningRepo: earningRepo,
 		trainerRepo: trainerRepo, userRepo: userRepo, vnpay: vnpay, stripe: stripe,
+		db: db,
 	}
 	s.vnpayCfgRet.Membership = membershipReturnURL
 	s.vnpayCfgRet.Package = packageReturnURL
@@ -389,10 +426,10 @@ func toMembershipPlanRes(p *entity.GymMembershipPlan) gcv1.MembershipPlanRes {
 
 // ============================== User gym memberships ==============================
 
-func (s *gymCommerceService) ListUserGymMembershipsAdmin(ctx context.Context, page, limit int, status string, userID uint) (*gcv1.ListRes, error) {
+func (s *gymCommerceService) ListUserGymMembershipsAdmin(ctx context.Context, page, limit int, status string, userID uint, from, to *time.Time) (*gcv1.ListRes, error) {
 	_ = s.membRepo.ExpireEnded(ctx, time.Now().UTC())
 	page, limit = pageLimit(page, limit)
-	rows, total, err := s.membRepo.ListAdmin(ctx, (page-1)*limit, limit, status, userID)
+	rows, total, err := s.membRepo.ListAdmin(ctx, (page-1)*limit, limit, status, userID, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -426,6 +463,214 @@ func (s *gymCommerceService) AdminActivateMembership(ctx context.Context, member
 		return nil, err
 	}
 	res := toGymMembershipRes(fresh)
+	return &res, nil
+}
+
+// AdminCreateGymMembership records a walk-in registration at the front desk: the
+// member paid cash on the spot, so this creates the membership and activates it
+// in one step — no VNPay/Stripe checkout involved.
+func (s *gymCommerceService) AdminCreateGymMembership(ctx context.Context, userID, planID uint) (*gcv1.GymMembershipRes, error) {
+	if _, err := s.userRepo.GetByID(ctx, userID); err != nil {
+		return nil, notFoundOr(err, "user not found")
+	}
+	plan, err := s.planRepo.GetByID(ctx, planID)
+	if err != nil {
+		return nil, notFoundOr(err, "plan not found")
+	}
+	if !plan.IsActive {
+		return nil, fmt.Errorf("plan is not available")
+	}
+
+	now := time.Now().UTC()
+	m := &entity.UserGymMembership{
+		UserID:              userID,
+		GymMembershipPlanID: plan.ID,
+		BranchID:            plan.BranchID,
+		StartDate:           now,
+		EndDate:             now,
+		DurationMonths:      plan.DurationMonths,
+		Price:               plan.Price,
+		Currency:            money.Normalize(plan.Currency),
+		Status:              entity.GymMemStatusPending,
+		PaymentProvider:     entity.PaymentProviderCash,
+	}
+	if err := s.membRepo.Create(ctx, m); err != nil {
+		return nil, err
+	}
+	if err := s.activateGymMembership(ctx, m); err != nil {
+		return nil, err
+	}
+	fresh, err := s.membRepo.GetByID(ctx, m.ID)
+	if err != nil {
+		return nil, err
+	}
+	res := toGymMembershipRes(fresh)
+	return &res, nil
+}
+
+// AdminCreateUserPTPackage records a walk-in's PT package sale at the counter:
+// same capacity/booking-paused rules as a normal purchase (assertCanPurchasePTPackage),
+// but active immediately — no VNPay/Stripe checkout involved.
+func (s *gymCommerceService) AdminCreateUserPTPackage(ctx context.Context, userID, packageID uint) (*gcv1.UserPTPackageRes, error) {
+	if _, err := s.userRepo.GetByID(ctx, userID); err != nil {
+		return nil, notFoundOr(err, "user not found")
+	}
+	pkg, err := s.ptPkgRepo.GetByID(ctx, packageID)
+	if err != nil {
+		return nil, notFoundOr(err, "pt package not found")
+	}
+	if !pkg.IsActive {
+		return nil, fmt.Errorf("pt package is not available")
+	}
+	if err := s.assertCanPurchasePTPackage(ctx, userID, pkg.TrainerProfileID); err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	up := &entity.UserPTPackage{
+		UserID:           userID,
+		PTPackageID:      pkg.ID,
+		TrainerProfileID: pkg.TrainerProfileID,
+		SessionTotal:     pkg.SessionCount,
+		Price:            pkg.Price,
+		Currency:         money.Normalize(pkg.Currency),
+		Status:           entity.PTPkgStatusActive,
+		PaymentProvider:  entity.PaymentProviderCash,
+		StartsAt:         now,
+		ExpiresAt:        now.AddDate(0, 0, pkg.ValidDays),
+	}
+	if err := s.userPtPkgRepo.Create(ctx, up); err != nil {
+		return nil, err
+	}
+	fresh, err := s.userPtPkgRepo.GetByID(ctx, up.ID)
+	if err != nil {
+		return nil, err
+	}
+	s.notifyPTPackagePurchased(ctx, fresh)
+	res := toUserPTPackageRes(fresh)
+	return &res, nil
+}
+
+// AdminListPendingSessionReviews is the front-desk fallback for students who never
+// open the app to confirm a session themselves. Each row is enriched with the
+// student's own QR check-in history for that day, so staff have something to
+// cross-check the trainer's proof photo against before approving.
+func (s *gymCommerceService) AdminListPendingSessionReviews(ctx context.Context, page, limit int) (*gcv1.ListRes, error) {
+	page, limit = pageLimit(page, limit)
+	rows, total, err := s.offerRepo.ListAwaitingConfirmation(ctx, (page-1)*limit, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]gcv1.AdminSessionReviewRes, 0, len(rows))
+	for i := range rows {
+		o := &rows[i]
+		row := gcv1.AdminSessionReviewRes{SessionOfferRes: toSessionOfferRes(o)}
+		if up, err := s.userPtPkgRepo.GetByID(ctx, o.UserPTPackageID); err == nil && up != nil {
+			row.PackageTitle = up.PTPackage.Title
+			row.TrainerName = up.PTPackage.Trainer.DisplayName
+		}
+		email, name := s.userEmail(ctx, o.StudentUserID)
+		row.StudentName = name
+		row.StudentEmail = email
+		if s.checkInCreate != nil {
+			if checked, err := s.checkInCreate.CheckedInOn(ctx, o.StudentUserID, o.StartsAt); err == nil {
+				row.StudentCheckedInThatDay = checked
+			}
+		}
+		out = append(out, row)
+	}
+	return &gcv1.ListRes{Total: total, Data: out}, nil
+}
+
+// AdminApproveSessionOffer lets staff confirm a session on the student's behalf —
+// e.g. the pair coordinated the actual training over Zalo and the student never
+// opens the app to tap "confirm" themselves.
+func (s *gymCommerceService) AdminApproveSessionOffer(ctx context.Context, offerID uint) (*gcv1.SessionOfferRes, error) {
+	offer, err := s.offerRepo.GetByID(ctx, offerID)
+	if err != nil {
+		return nil, notFoundOr(err, "không tìm thấy đề xuất buổi tập")
+	}
+	return s.finalizeSessionConfirmation(ctx, offer, 0)
+}
+
+// AdminRejectSessionOffer sends the proof back to the trainer — per gym policy,
+// a rejected session must be resubmitted with new proof, not simply discarded.
+func (s *gymCommerceService) AdminRejectSessionOffer(ctx context.Context, offerID uint) (*gcv1.SessionOfferRes, error) {
+	offer, err := s.offerRepo.GetByID(ctx, offerID)
+	if err != nil {
+		return nil, notFoundOr(err, "không tìm thấy đề xuất buổi tập")
+	}
+	if offer.Status != entity.SessionOfferAwaitingConfirmation {
+		return nil, fmt.Errorf("buổi tập không ở trạng thái chờ xác nhận")
+	}
+	offer.Status = entity.SessionOfferScheduled
+	offer.ProofImageURL = ""
+	offer.ProofSubmittedAt = nil
+	offer.CompletedByUserID = 0
+	offer.CompletedAt = nil
+	offer.SessionIndex = 0
+	offer.ConfirmedByUserID = 0
+	offer.ConfirmedAt = nil
+	if err := s.offerRepo.Update(ctx, offer); err != nil {
+		return nil, err
+	}
+	res := toSessionOfferRes(offer)
+	if t, err := s.trainerRepo.GetByID(ctx, offer.TrainerProfileID); err == nil && t != nil {
+		te, tn := s.userEmail(ctx, t.UserID)
+		s.notifyEmail(ctx, "pt_session_proof_rejected", map[string]interface{}{
+			"UserName": tn,
+			"StartsAt": offer.StartsAt.In(vnLocation()).Format("15:04 02/01/2006"),
+		}, te)
+	}
+	return &res, nil
+}
+
+// AdminUndoSessionApproval reverses a mistaken approve/auto-confirm — deletes the
+// unpaid earning row, gives the session credit back to the package, and puts the
+// offer back into the review queue. Blocked once the earning has been paid out;
+// that case needs a manual accounting adjustment, not a silent revert.
+func (s *gymCommerceService) AdminUndoSessionApproval(ctx context.Context, offerID uint) (*gcv1.SessionOfferRes, error) {
+	offer, err := s.offerRepo.GetByID(ctx, offerID)
+	if err != nil {
+		return nil, notFoundOr(err, "không tìm thấy đề xuất buổi tập")
+	}
+	if offer.Status != entity.SessionOfferCompleted {
+		return nil, fmt.Errorf("chỉ có thể hoàn tác buổi tập đã hoàn thành")
+	}
+
+	earning, err := s.earningRepo.GetBySessionOfferID(ctx, offerID)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	if earning != nil {
+		if earning.PaidOut {
+			return nil, fmt.Errorf("hoa hồng đã được thanh toán — vui lòng điều chỉnh thủ công thay vì hoàn tác")
+		}
+		if err := s.earningRepo.Delete(ctx, earning.ID); err != nil {
+			return nil, err
+		}
+	}
+
+	up, err := s.userPtPkgRepo.GetByID(ctx, offer.UserPTPackageID)
+	if err != nil {
+		return nil, notFoundOr(err, "user pt package not found")
+	}
+	if up.SessionUsed > 0 {
+		up.SessionUsed--
+		if err := s.userPtPkgRepo.Update(ctx, up); err != nil {
+			return nil, err
+		}
+	}
+
+	offer.Status = entity.SessionOfferAwaitingConfirmation
+	offer.CompletedAt = nil
+	offer.SessionIndex = 0
+	offer.ConfirmedByUserID = 0
+	offer.ConfirmedAt = nil
+	if err := s.offerRepo.Update(ctx, offer); err != nil {
+		return nil, err
+	}
+	res := toSessionOfferRes(offer)
 	return &res, nil
 }
 
@@ -474,14 +719,14 @@ func (s *gymCommerceService) CheckoutMembershipVNPay(ctx context.Context, userID
 	m := &entity.UserGymMembership{
 		UserID:              userID,
 		GymMembershipPlanID: plan.ID,
-		BranchID:             plan.BranchID,
-		StartDate:            now,
-		EndDate:              now,
-		DurationMonths:       plan.DurationMonths,
-		Price:                plan.Price,
-		Currency: money.Normalize(plan.Currency),
-		Status:               entity.GymMemStatusPending,
-		PaymentProvider:      entity.PaymentProviderVNPay,
+		BranchID:            plan.BranchID,
+		StartDate:           now,
+		EndDate:             now,
+		DurationMonths:      plan.DurationMonths,
+		Price:               plan.Price,
+		Currency:            money.Normalize(plan.Currency),
+		Status:              entity.GymMemStatusPending,
+		PaymentProvider:     entity.PaymentProviderVNPay,
 	}
 	if err := s.membRepo.Create(ctx, m); err != nil {
 		return nil, err
@@ -572,7 +817,7 @@ func (s *gymCommerceService) CheckoutMembershipStripe(ctx context.Context, userI
 		EndDate:             now,
 		DurationMonths:      plan.DurationMonths,
 		Price:               plan.Price,
-		Currency: money.Normalize(plan.Currency),
+		Currency:            money.Normalize(plan.Currency),
 		Status:              entity.GymMemStatusPending,
 		PaymentProvider:     entity.PaymentProviderStripe,
 	}
@@ -1251,7 +1496,7 @@ func (s *gymCommerceService) CheckoutPTPackageVNPay(ctx context.Context, userID,
 		TrainerProfileID: pkg.TrainerProfileID,
 		SessionTotal:     pkg.SessionCount,
 		Price:            pkg.Price,
-		Currency: money.Normalize(pkg.Currency),
+		Currency:         money.Normalize(pkg.Currency),
 		Status:           entity.PTPkgStatusPending,
 		PaymentProvider:  entity.PaymentProviderVNPay,
 	}
@@ -1367,7 +1612,7 @@ func (s *gymCommerceService) CheckoutPTPackageStripe(ctx context.Context, userID
 		TrainerProfileID: pkg.TrainerProfileID,
 		SessionTotal:     pkg.SessionCount,
 		Price:            pkg.Price,
-		Currency: money.Normalize(pkg.Currency),
+		Currency:         money.Normalize(pkg.Currency),
 		Status:           entity.PTPkgStatusPending,
 		PaymentProvider:  entity.PaymentProviderStripe,
 	}
@@ -1546,7 +1791,7 @@ func (s *gymCommerceService) recordPTSessionEarning(ctx context.Context, up *ent
 
 func (s *gymCommerceService) LogPTSession(ctx context.Context, trainerUserID, userPTPackageID uint, req *gcv1.LogPTSessionReq) (*gcv1.PTSessionLogRes, error) {
 	_, _, _, _ = ctx, trainerUserID, userPTPackageID, req
-	return nil, fmt.Errorf("use session offers: propose a time in chat, accept it, then complete with photo proof")
+	return nil, fmt.Errorf("vui lòng dùng đề xuất buổi tập: gửi giờ hẹn qua chat, chấp nhận, rồi hoàn thành kèm ảnh minh chứng")
 }
 
 func (s *gymCommerceService) ListPTSessions(ctx context.Context, requesterUserID, userPTPackageID uint) (*gcv1.ListRes, error) {
@@ -1604,10 +1849,10 @@ func (s *gymCommerceService) ListSoldPTPackages(ctx context.Context, trainerUser
 	return &gcv1.ListRes{Total: total, Data: out}, nil
 }
 
-func (s *gymCommerceService) ListUserPTPackagesAdmin(ctx context.Context, page, limit int, status string, trainerProfileID, userID uint) (*gcv1.ListRes, error) {
+func (s *gymCommerceService) ListUserPTPackagesAdmin(ctx context.Context, page, limit int, status string, trainerProfileID, userID uint, from, to *time.Time) (*gcv1.ListRes, error) {
 	_ = s.userPtPkgRepo.ExpireEnded(ctx, time.Now().UTC())
 	page, limit = pageLimit(page, limit)
-	rows, total, err := s.userPtPkgRepo.ListAdmin(ctx, (page-1)*limit, limit, status, trainerProfileID, userID)
+	rows, total, err := s.userPtPkgRepo.ListAdmin(ctx, (page-1)*limit, limit, status, trainerProfileID, userID, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -1677,13 +1922,13 @@ func (s *gymCommerceService) assertCanViewUserPTPackage(ctx context.Context, req
 	if err == nil && t.ID == up.TrainerProfileID {
 		return nil
 	}
-	return fmt.Errorf("unauthorized")
+	return fmt.Errorf("không có quyền truy cập")
 }
 
 func (s *gymCommerceService) ListChatMessages(ctx context.Context, requesterUserID, userPTPackageID, afterID uint, limit int) (*gcv1.ChatMessagesRes, error) {
 	up, err := s.userPtPkgRepo.GetByID(ctx, userPTPackageID)
 	if err != nil {
-		return nil, notFoundOr(err, "user pt package not found")
+		return nil, notFoundOr(err, "không tìm thấy gói tập của người dùng")
 	}
 	if err := s.assertCanViewUserPTPackage(ctx, requesterUserID, up); err != nil {
 		return nil, err
@@ -1730,20 +1975,20 @@ func (s *gymCommerceService) ListChatMessages(ctx context.Context, requesterUser
 func (s *gymCommerceService) SendChatMessage(ctx context.Context, requesterUserID, userPTPackageID uint, req *gcv1.SendChatMessageReq) (*gcv1.ChatMessageRes, error) {
 	body := strings.TrimSpace(req.Body)
 	if body == "" {
-		return nil, fmt.Errorf("message body is required")
+		return nil, fmt.Errorf("nội dung tin nhắn không được để trống")
 	}
 	if len(body) > 4000 {
-		return nil, fmt.Errorf("message too long (max 4000 characters)")
+		return nil, fmt.Errorf("tin nhắn quá dài (tối đa 4000 ký tự)")
 	}
 	up, err := s.userPtPkgRepo.GetByID(ctx, userPTPackageID)
 	if err != nil {
-		return nil, notFoundOr(err, "user pt package not found")
+		return nil, notFoundOr(err, "không tìm thấy gói tập của người dùng")
 	}
 	if err := s.assertCanViewUserPTPackage(ctx, requesterUserID, up); err != nil {
 		return nil, err
 	}
 	if up.Status != entity.PTPkgStatusActive {
-		return nil, fmt.Errorf("chat is only available while the package is active")
+		return nil, fmt.Errorf("chỉ có thể chat khi gói tập còn hoạt động")
 	}
 	msg := &entity.PTPackageChatMessage{
 		UserPTPackageID: up.ID,
@@ -1761,20 +2006,20 @@ func (s *gymCommerceService) SendChatMessage(ctx context.Context, requesterUserI
 func (s *gymCommerceService) CreateSessionOffer(ctx context.Context, requesterUserID, userPTPackageID uint, req *gcv1.CreateSessionOfferReq) (*gcv1.SessionOfferRes, error) {
 	up, err := s.userPtPkgRepo.GetByID(ctx, userPTPackageID)
 	if err != nil {
-		return nil, notFoundOr(err, "user pt package not found")
+		return nil, notFoundOr(err, "không tìm thấy gói tập của người dùng")
 	}
 	if err := s.assertCanViewUserPTPackage(ctx, requesterUserID, up); err != nil {
 		return nil, err
 	}
 	if up.Status != entity.PTPkgStatusActive {
-		return nil, fmt.Errorf("package is not active")
+		return nil, fmt.Errorf("gói tập không còn hoạt động")
 	}
 	if err := s.assertSessionsAvailable(ctx, up); err != nil {
 		return nil, err
 	}
 	startsAt := req.StartsAt.UTC()
 	if startsAt.IsZero() {
-		return nil, fmt.Errorf("starts_at is required")
+		return nil, fmt.Errorf("cần nhập giờ bắt đầu")
 	}
 	var endsAt *time.Time
 	if t, err := s.trainerRepo.GetByID(ctx, up.TrainerProfileID); err == nil && t != nil {
@@ -1820,10 +2065,79 @@ func (s *gymCommerceService) CreateSessionOffer(ctx context.Context, requesterUs
 	_ = fromEmail
 	toEmail, toName := s.userEmail(ctx, otherID)
 	s.notifyEmail(ctx, "pt_session_proposed", map[string]interface{}{
-		"UserName":  toName,
-		"FromName":  fromName,
-		"StartsAt":  startsAt.In(vnLocation()).Format("15:04 02/01/2006"),
+		"UserName": toName,
+		"FromName": fromName,
+		"StartsAt": startsAt.In(vnLocation()).Format("15:04 02/01/2006"),
 	}, toEmail)
+	res := toSessionOfferRes(offer)
+	return &res, nil
+}
+
+// LogSessionDirect lets a trainer record a session that was scheduled entirely
+// outside the app (e.g. over Zalo) — it skips propose/accept/scheduled and creates
+// the offer straight in "awaiting confirmation" with proof attached, same as if the
+// student had accepted a proposal and the trainer had just completed it. A chat
+// message is still created so it shows up in the existing thread/status UI.
+func (s *gymCommerceService) LogSessionDirect(ctx context.Context, trainerUserID, userPTPackageID uint, req *gcv1.LogSessionDirectReq) (*gcv1.SessionOfferRes, error) {
+	up, err := s.userPtPkgRepo.GetByID(ctx, userPTPackageID)
+	if err != nil {
+		return nil, notFoundOr(err, "không tìm thấy gói tập của người dùng")
+	}
+	t, err := s.trainerProfileForUser(ctx, trainerUserID)
+	if err != nil || t.ID != up.TrainerProfileID {
+		return nil, fmt.Errorf("chỉ huấn luyện viên của gói tập này mới có thể ghi nhận buổi tập")
+	}
+	if up.Status != entity.PTPkgStatusActive {
+		return nil, fmt.Errorf("gói tập không còn hoạt động")
+	}
+	if err := s.assertSessionsAvailable(ctx, up); err != nil {
+		return nil, err
+	}
+	proof := strings.TrimSpace(req.ProofImageURL)
+	if proof == "" {
+		return nil, fmt.Errorf("cần có ảnh minh chứng")
+	}
+	now := time.Now().UTC()
+	taughtAt := req.TaughtAt.UTC()
+	if taughtAt.IsZero() {
+		taughtAt = now
+	}
+	if taughtAt.After(now) {
+		return nil, fmt.Errorf("thời điểm dạy không được ở trong tương lai")
+	}
+
+	offer := &entity.PTSessionOffer{
+		UserPTPackageID:   up.ID,
+		TrainerProfileID:  up.TrainerProfileID,
+		StudentUserID:     up.UserID,
+		StartsAt:          taughtAt,
+		Note:              strings.TrimSpace(req.Note),
+		ProposedByUserID:  trainerUserID,
+		Status:            entity.SessionOfferAwaitingConfirmation,
+		AcceptedByUserID:  trainerUserID,
+		AcceptedAt:        &now,
+		ProofImageURL:     proof,
+		ProofSubmittedAt:  &now,
+		CompletedByUserID: trainerUserID,
+	}
+	if err := s.offerRepo.Create(ctx, offer); err != nil {
+		return nil, err
+	}
+	offerID := offer.ID
+	body := fmt.Sprintf("Ghi nhận buổi đã dạy (hẹn ngoài app): %s", taughtAt.In(vnLocation()).Format("15:04 02/01/2006"))
+	if offer.Note != "" {
+		body += "\n" + offer.Note
+	}
+	msg := &entity.PTPackageChatMessage{
+		UserPTPackageID: up.ID,
+		SenderUserID:    trainerUserID,
+		Body:            body,
+		MessageType:     entity.ChatMsgTypeSessionOffer,
+		SessionOfferID:  &offerID,
+	}
+	if err := s.chatRepo.Create(ctx, msg); err != nil {
+		return nil, err
+	}
 	res := toSessionOfferRes(offer)
 	return &res, nil
 }
@@ -1853,13 +2167,13 @@ func (s *gymCommerceService) AcceptSessionOffer(ctx context.Context, requesterUs
 		return nil, err
 	}
 	if offer.Status != entity.SessionOfferPending {
-		return nil, fmt.Errorf("offer is not pending")
+		return nil, fmt.Errorf("đề xuất không ở trạng thái chờ phản hồi")
 	}
 	if offer.ProposedByUserID == requesterUserID {
-		return nil, fmt.Errorf("proposer already accepted; wait for the other party")
+		return nil, fmt.Errorf("bạn là người đề xuất; vui lòng chờ phản hồi từ phía còn lại")
 	}
 	if up.SessionUsed >= up.SessionTotal {
-		return nil, fmt.Errorf("no sessions left")
+		return nil, fmt.Errorf("đã hết số buổi trong gói tập")
 	}
 	if t, err := s.trainerRepo.GetByID(ctx, up.TrainerProfileID); err == nil && t != nil {
 		dur := s.sessionDuration(t)
@@ -1874,7 +2188,7 @@ func (s *gymCommerceService) AcceptSessionOffer(ctx context.Context, requesterUs
 					continue
 				}
 				if rangesOverlap(offer.StartsAt.UTC(), end.UTC(), busy[i].StartsAt.UTC(), offerEnd(&busy[i], dur)) {
-					return nil, fmt.Errorf("time conflicts with another booking")
+					return nil, fmt.Errorf("thời gian bị trùng với một lịch hẹn khác")
 				}
 			}
 		}
@@ -1905,10 +2219,10 @@ func (s *gymCommerceService) DeclineSessionOffer(ctx context.Context, requesterU
 		return nil, err
 	}
 	if offer.Status != entity.SessionOfferPending {
-		return nil, fmt.Errorf("offer is not pending")
+		return nil, fmt.Errorf("đề xuất không ở trạng thái chờ phản hồi")
 	}
 	if offer.ProposedByUserID == requesterUserID {
-		return nil, fmt.Errorf("use cancel instead of decline for your own offer")
+		return nil, fmt.Errorf("đây là đề xuất của bạn — hãy dùng hủy thay vì từ chối")
 	}
 	offer.Status = entity.SessionOfferDeclined
 	if err := s.offerRepo.Update(ctx, offer); err != nil {
@@ -1928,13 +2242,13 @@ func (s *gymCommerceService) CancelSessionOffer(ctx context.Context, requesterUs
 		// A pending offer is only the proposer's to retract; the other party
 		// should decline it instead (DeclineSessionOffer), not cancel it.
 		if offer.ProposedByUserID != requesterUserID {
-			return nil, fmt.Errorf("only the proposer can cancel a pending offer; use decline instead")
+			return nil, fmt.Errorf("chỉ người đề xuất mới có thể hủy đề xuất đang chờ; bên còn lại vui lòng dùng từ chối")
 		}
 	case entity.SessionOfferScheduled:
 		// Once both sides accepted, either the student or the trainer may
 		// cancel — getPackageOffer already proved requesterUserID is one of them.
 	default:
-		return nil, fmt.Errorf("offer cannot be cancelled")
+		return nil, fmt.Errorf("không thể hủy đề xuất này")
 	}
 	offer.Status = entity.SessionOfferCancelled
 	if err := s.offerRepo.Update(ctx, offer); err != nil {
@@ -1954,15 +2268,15 @@ func (s *gymCommerceService) RescheduleSessionOffer(ctx context.Context, request
 		return nil, err
 	}
 	if offer.Status != entity.SessionOfferScheduled {
-		return nil, fmt.Errorf("only a scheduled session can be rescheduled")
+		return nil, fmt.Errorf("chỉ buổi tập đã lên lịch mới có thể đổi giờ")
 	}
 	newStartsAt = newStartsAt.UTC()
 	if !newStartsAt.After(time.Now().UTC()) {
-		return nil, fmt.Errorf("new time must be in the future")
+		return nil, fmt.Errorf("giờ mới phải ở trong tương lai")
 	}
 	t, err := s.trainerRepo.GetByID(ctx, up.TrainerProfileID)
 	if err != nil || t == nil {
-		return nil, fmt.Errorf("trainer not found")
+		return nil, fmt.Errorf("không tìm thấy huấn luyện viên")
 	}
 	dur := s.sessionDuration(t)
 	newEnd := newStartsAt.Add(dur)
@@ -1973,7 +2287,7 @@ func (s *gymCommerceService) RescheduleSessionOffer(ctx context.Context, request
 				continue
 			}
 			if rangesOverlap(newStartsAt, newEnd, busy[i].StartsAt.UTC(), offerEnd(&busy[i], dur)) {
-				return nil, fmt.Errorf("new time conflicts with another booking")
+				return nil, fmt.Errorf("giờ mới bị trùng với một lịch hẹn khác")
 			}
 		}
 	}
@@ -1992,7 +2306,7 @@ func (s *gymCommerceService) RescheduleSessionOffer(ctx context.Context, request
 func (s *gymCommerceService) CompleteSessionOffer(ctx context.Context, requesterUserID, userPTPackageID, offerID uint, req *gcv1.CompleteSessionOfferReq) (*gcv1.SessionOfferRes, error) {
 	proof := strings.TrimSpace(req.ProofImageURL)
 	if proof == "" {
-		return nil, fmt.Errorf("proof_image_url is required")
+		return nil, fmt.Errorf("cần có ảnh minh chứng")
 	}
 	offer, up, err := s.getPackageOffer(ctx, requesterUserID, userPTPackageID, offerID)
 	if err != nil {
@@ -2000,20 +2314,20 @@ func (s *gymCommerceService) CompleteSessionOffer(ctx context.Context, requester
 	}
 	t, err := s.trainerProfileForUser(ctx, requesterUserID)
 	if err != nil || t.ID != up.TrainerProfileID {
-		return nil, fmt.Errorf("only the package trainer can complete a session")
+		return nil, fmt.Errorf("chỉ huấn luyện viên của gói tập này mới có thể hoàn thành buổi tập")
 	}
 	if offer.Status != entity.SessionOfferScheduled {
-		return nil, fmt.Errorf("offer must be scheduled before completion")
+		return nil, fmt.Errorf("buổi tập phải ở trạng thái đã lên lịch trước khi hoàn thành")
 	}
 	if up.Status != entity.PTPkgStatusActive {
-		return nil, fmt.Errorf("package is not active")
+		return nil, fmt.Errorf("gói tập không còn hoạt động")
 	}
 	if up.SessionUsed >= up.SessionTotal {
-		return nil, fmt.Errorf("no sessions left")
+		return nil, fmt.Errorf("đã hết số buổi trong gói tập")
 	}
 	now := time.Now().UTC()
 	if now.Before(offer.StartsAt) {
-		return nil, fmt.Errorf("cannot complete a session before its scheduled start time")
+		return nil, fmt.Errorf("không thể hoàn thành buổi tập trước giờ hẹn")
 	}
 
 	note := strings.TrimSpace(req.Note)
@@ -2042,7 +2356,7 @@ func (s *gymCommerceService) ConfirmSessionOffer(ctx context.Context, requesterU
 		return nil, err
 	}
 	if up.UserID != requesterUserID {
-		return nil, fmt.Errorf("only the student can confirm the session")
+		return nil, fmt.Errorf("chỉ học viên mới có thể xác nhận buổi tập")
 	}
 	return s.finalizeSessionConfirmation(ctx, offer, requesterUserID)
 }
@@ -2053,10 +2367,10 @@ func (s *gymCommerceService) RejectSessionOfferProof(ctx context.Context, reques
 		return nil, err
 	}
 	if up.UserID != requesterUserID {
-		return nil, fmt.Errorf("only the student can reject session proof")
+		return nil, fmt.Errorf("chỉ học viên mới có thể từ chối ảnh minh chứng")
 	}
 	if offer.Status != entity.SessionOfferAwaitingConfirmation {
-		return nil, fmt.Errorf("offer is not awaiting confirmation")
+		return nil, fmt.Errorf("buổi tập không ở trạng thái chờ xác nhận")
 	}
 	// Back to scheduled so PT can upload a new proof photo.
 	offer.Status = entity.SessionOfferScheduled
@@ -2077,31 +2391,31 @@ func (s *gymCommerceService) RejectSessionOfferProof(ctx context.Context, reques
 func (s *gymCommerceService) getPackageOffer(ctx context.Context, requesterUserID, userPTPackageID, offerID uint) (*entity.PTSessionOffer, *entity.UserPTPackage, error) {
 	up, err := s.userPtPkgRepo.GetByID(ctx, userPTPackageID)
 	if err != nil {
-		return nil, nil, notFoundOr(err, "user pt package not found")
+		return nil, nil, notFoundOr(err, "không tìm thấy gói tập của người dùng")
 	}
 	if err := s.assertCanViewUserPTPackage(ctx, requesterUserID, up); err != nil {
 		return nil, nil, err
 	}
 	offer, err := s.offerRepo.GetByID(ctx, offerID)
 	if err != nil {
-		return nil, nil, notFoundOr(err, "session offer not found")
+		return nil, nil, notFoundOr(err, "không tìm thấy đề xuất buổi tập")
 	}
 	if offer.UserPTPackageID != up.ID {
-		return nil, nil, fmt.Errorf("offer does not belong to package")
+		return nil, nil, fmt.Errorf("đề xuất này không thuộc gói tập")
 	}
 	return offer, up, nil
 }
 
 func (s *gymCommerceService) assertSessionsAvailable(ctx context.Context, up *entity.UserPTPackage) error {
 	if up.SessionUsed >= up.SessionTotal {
-		return fmt.Errorf("no sessions left")
+		return fmt.Errorf("đã hết số buổi trong gói tập")
 	}
 	open, err := s.offerRepo.CountOpenByPackage(ctx, up.ID)
 	if err != nil {
 		return err
 	}
 	if int(up.SessionUsed)+int(open) >= up.SessionTotal {
-		return fmt.Errorf("no open session slots left (pending/scheduled offers count toward the package)")
+		return fmt.Errorf("không còn suất buổi tập trống (các đề xuất đang chờ/đã lên lịch cũng được tính vào gói)")
 	}
 	return nil
 }
@@ -2130,15 +2444,17 @@ func (s *gymCommerceService) toChatMessageRes(ctx context.Context, m *entity.PTP
 		msgType = entity.ChatMsgTypeText
 	}
 	res := gcv1.ChatMessageRes{
-		ID:              m.ID,
-		UserPTPackageID: m.UserPTPackageID,
-		SenderUserID:    m.SenderUserID,
-		SenderName:      name,
-		SenderAvatarURL: avatar,
-		Body:            m.Body,
-		MessageType:     msgType,
-		SessionOfferID:  m.SessionOfferID,
-		CreatedAt:       m.CreatedAt,
+		ID:                m.ID,
+		UserPTPackageID:   m.UserPTPackageID,
+		SenderUserID:      m.SenderUserID,
+		SenderName:        name,
+		SenderAvatarURL:   avatar,
+		Body:              m.Body,
+		MessageType:       msgType,
+		SessionOfferID:    m.SessionOfferID,
+		SharedContentType: m.SharedContentType,
+		SharedContentID:   m.SharedContentID,
+		CreatedAt:         m.CreatedAt,
 	}
 	if m.SessionOfferID != nil && offerMap != nil {
 		if o, ok := offerMap[*m.SessionOfferID]; ok {
@@ -2265,9 +2581,9 @@ func toRevenueShareRes(s *entity.RevenueShareSetting) *gcv1.RevenueShareRes {
 
 // ============================== PT earnings ==============================
 
-func (s *gymCommerceService) ListPTEarningsAdmin(ctx context.Context, page, limit int, trainerProfileID uint) (*gcv1.EarningsSummaryRes, error) {
+func (s *gymCommerceService) ListPTEarningsAdmin(ctx context.Context, page, limit int, trainerProfileID uint, from, to *time.Time) (*gcv1.EarningsSummaryRes, error) {
 	page, limit = pageLimit(page, limit)
-	rows, total, err := s.earningRepo.ListAdmin(ctx, (page-1)*limit, limit, trainerProfileID)
+	rows, total, err := s.earningRepo.ListAdmin(ctx, (page-1)*limit, limit, trainerProfileID, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -2291,7 +2607,98 @@ func (s *gymCommerceService) MyPTEarnings(ctx context.Context, trainerUserID uin
 	if err != nil {
 		return nil, err
 	}
-	return s.ListPTEarningsAdmin(ctx, page, limit, t.ID)
+	return s.ListPTEarningsAdmin(ctx, page, limit, t.ID, nil, nil)
+}
+
+func toTodayPackageItem(p *entity.UserPTPackage) gcv1.TodayPackageItemRes {
+	packageTitle := ""
+	if p.PTPackage.ID != 0 {
+		packageTitle = p.PTPackage.Title
+	}
+	studentName, studentEmail := "", ""
+	if p.User.ID != 0 {
+		studentName = displayNameFromUser(&p.User)
+		studentEmail = p.User.Email
+	}
+	return gcv1.TodayPackageItemRes{
+		ID:           p.ID,
+		StudentName:  studentName,
+		StudentEmail: studentEmail,
+		PackageTitle: packageTitle,
+		Price:        p.Price,
+		Currency:     p.Currency,
+		CreatedAt:    p.CreatedAt,
+	}
+}
+
+// MyTodayActivity gives a PT an at-a-glance view of today's package sales +
+// commission, plus any purchases they haven't acknowledged yet.
+func (s *gymCommerceService) MyTodayActivity(ctx context.Context, trainerUserID uint) (*gcv1.MyTodayActivityRes, error) {
+	t, err := s.trainerProfileForUser(ctx, trainerUserID)
+	if err != nil {
+		return nil, err
+	}
+	todayStart, todayEnd := dayBoundsUTC(time.Now().UTC())
+
+	todayRows, _, err := s.userPtPkgRepo.ListAdmin(ctx, 0, 200, entity.PTPkgStatusActive, t.ID, 0, &todayStart, &todayEnd)
+	if err != nil {
+		return nil, err
+	}
+	todayItems := make([]gcv1.TodayPackageItemRes, 0, len(todayRows))
+	var todayRevenue float64
+	students := make(map[uint]struct{}, len(todayRows))
+	currency := money.DefaultCurrency
+	for i := range todayRows {
+		todayItems = append(todayItems, toTodayPackageItem(&todayRows[i]))
+		todayRevenue += todayRows[i].Price
+		students[todayRows[i].UserID] = struct{}{}
+		if todayRows[i].Currency != "" {
+			currency = money.Normalize(todayRows[i].Currency)
+		}
+	}
+
+	todayPTEarnings, err := s.earningRepo.SumPTAmountRange(ctx, t.ID, &todayStart, &todayEnd)
+	if err != nil {
+		return nil, err
+	}
+
+	// Unseen = purchased since the trainer last acknowledged; a trainer who
+	// has never acknowledged only sees today's, not their entire history.
+	unseenFrom := todayStart
+	if t.StudentsSeenAt != nil {
+		unseenFrom = *t.StudentsSeenAt
+	}
+	unseenRows, _, err := s.userPtPkgRepo.ListAdmin(ctx, 0, 200, entity.PTPkgStatusActive, t.ID, 0, &unseenFrom, nil)
+	if err != nil {
+		return nil, err
+	}
+	unseenItems := make([]gcv1.TodayPackageItemRes, 0, len(unseenRows))
+	for i := range unseenRows {
+		unseenItems = append(unseenItems, toTodayPackageItem(&unseenRows[i]))
+	}
+
+	return &gcv1.MyTodayActivityRes{
+		Date:             todayStart.Format("2006-01-02"),
+		TodayRevenue:     todayRevenue,
+		TodayPTEarnings:  todayPTEarnings,
+		TodayNewStudents: len(students),
+		TodayPackages:    todayItems,
+		Currency:         currency,
+		UnseenCount:      len(unseenItems),
+		UnseenPackages:   unseenItems,
+	}, nil
+}
+
+// MarkStudentsSeen records that the trainer has checked their student list —
+// purchases before this moment stop showing as "unseen" on the dashboard.
+func (s *gymCommerceService) MarkStudentsSeen(ctx context.Context, trainerUserID uint) error {
+	t, err := s.trainerProfileForUser(ctx, trainerUserID)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	t.StudentsSeenAt = &now
+	return s.trainerRepo.Update(ctx, t)
 }
 
 func toPTEarningRes(e *entity.PTEarning) gcv1.PTEarningRes {
@@ -2319,6 +2726,7 @@ func toPTEarningRes(e *entity.PTEarning) gcv1.PTEarningRes {
 		TrainerProfileID: e.TrainerProfileID,
 		TrainerName:      trainerName,
 		UserPTPackageID:  e.UserPTPackageID,
+		SessionOfferID:   e.SessionOfferID,
 		PackageTitle:     packageTitle,
 		StudentName:      studentName,
 		StudentEmail:     studentEmail,

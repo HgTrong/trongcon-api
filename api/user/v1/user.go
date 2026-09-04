@@ -3,14 +3,15 @@ package v1
 import "time"
 
 type CreateReq struct {
-	Email       string `json:"email" binding:"required,email"`
-	Password    string `json:"password" binding:"required,min=6"`
-	Name        string `json:"name"`
-	FirstName   string `json:"first_name"`
-	LastName    string `json:"last_name"`
-	Gender      string `json:"gender" binding:"omitempty,oneof=male female other prefer_not_to_say"`
-	Language    string `json:"language"`
-	AccountType string `json:"account_type" binding:"omitempty,oneof=free premium"`
+	Email       string     `json:"email" binding:"required,email"`
+	Password    string     `json:"password" binding:"required,min=6"`
+	Name        string     `json:"name"`
+	FirstName   string     `json:"first_name"`
+	LastName    string     `json:"last_name"`
+	DateOfBirth *time.Time `json:"date_of_birth"`
+	Gender      string     `json:"gender" binding:"omitempty,oneof=male female other prefer_not_to_say"`
+	Language    string     `json:"language"`
+	AccountType string     `json:"account_type" binding:"omitempty,oneof=free premium"`
 }
 
 type CreateRes struct {
@@ -18,12 +19,13 @@ type CreateRes struct {
 }
 
 type UpdateReq struct {
-	Email       string `json:"email" binding:"omitempty,email"`
-	Name        string `json:"name"`
-	FirstName   string `json:"first_name"`
-	LastName    string `json:"last_name"`
-	Gender      string `json:"gender"`
-	Language    string `json:"language"`
+	Email       string     `json:"email" binding:"omitempty,email"`
+	Name        string     `json:"name"`
+	FirstName   string     `json:"first_name"`
+	LastName    string     `json:"last_name"`
+	DateOfBirth *time.Time `json:"date_of_birth"`
+	Gender      string     `json:"gender"`
+	Language    string     `json:"language"`
 	AccountType    string  `json:"account_type"`
 	ProfilePicture *string `json:"profile_picture"`
 }
@@ -41,6 +43,7 @@ type ListUsersReq struct {
 	Limit    int    `form:"limit"`
 	OrderBy  string `form:"order_by"`
 	OrderDir string `form:"order_dir"`
+	Q        string `form:"q"`
 }
 
 type ListUsersRes struct {
@@ -58,6 +61,7 @@ type UserRes struct {
 	Name        string     `json:"name"`
 	FirstName   string     `json:"first_name"`
 	LastName    string     `json:"last_name"`
+	DateOfBirth *time.Time `json:"date_of_birth,omitempty"`
 	Gender      string     `json:"gender"`
 	Language    string     `json:"language"`
 	MemberSince time.Time  `json:"member_since"`

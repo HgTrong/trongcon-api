@@ -17,10 +17,16 @@ func Register(r *gin.RouterGroup, c *gcctl.Controller) {
 	}
 
 	r.GET("/user-gym-memberships", c.ListUserGymMemberships)
+	r.POST("/user-gym-memberships", c.AdminCreateGymMembership)
 	r.POST("/user-gym-memberships/:id/activate", c.AdminActivateMembership)
 	r.POST("/user-gym-memberships/:id/cancel", c.AdminCancelMembership)
 	r.POST("/gym-check-ins/verify", c.VerifyCheckIn)
 	r.GET("/gym-check-ins", c.ListRecentCheckIns)
+
+	r.GET("/pt-session-offers/pending-review", c.AdminListPendingSessionReviews)
+	r.POST("/pt-session-offers/:id/approve", c.AdminApproveSessionOffer)
+	r.POST("/pt-session-offers/:id/reject", c.AdminRejectSessionOffer)
+	r.POST("/pt-session-offers/:id/undo-approval", c.AdminUndoSessionApproval)
 
 	classes := r.Group("/group-classes")
 	{
@@ -47,6 +53,7 @@ func Register(r *gin.RouterGroup, c *gcctl.Controller) {
 	r.PATCH("/pt-earnings/:id/paid-out", c.SetPTEarningPaidOut)
 	r.GET("/pt-packages", c.ListPTPackagesAdmin)
 	r.GET("/user-pt-packages", c.ListUserPTPackagesAdmin)
+	r.POST("/user-pt-packages", c.AdminCreateUserPTPackage)
 	r.GET("/user-pt-packages/:id/sessions", c.ListPTSessionsAdmin)
 	r.GET("/trainers/:id/ops-overview", c.AdminTrainerOpsOverview)
 	r.GET("/trainers/:id/clients", c.AdminListTrainerClients)

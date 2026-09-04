@@ -168,29 +168,29 @@ type PTPackageRes struct {
 }
 
 type UserPTPackageRes struct {
-	ID               uint      `json:"id"`
-	UserID           uint      `json:"user_id"`
-	StudentName      string    `json:"student_name,omitempty"`
-	StudentEmail     string    `json:"student_email,omitempty"`
-	PTPackageID      uint      `json:"pt_package_id"`
-	PackageTitle     string    `json:"package_title,omitempty"`
-	TrainerProfileID uint      `json:"trainer_profile_id"`
-	TrainerName      string    `json:"trainer_name,omitempty"`
-	SessionTotal     int       `json:"session_total"`
-	SessionUsed      int       `json:"session_used"`
-	SessionLeft      int       `json:"session_left"`
-	Price            float64   `json:"price"`
-	Currency         string    `json:"currency"`
-	Status           string    `json:"status"`
-	StartsAt         time.Time `json:"starts_at"`
-	ExpiresAt        time.Time `json:"expires_at"`
-	PaymentProvider  string    `json:"payment_provider,omitempty"`
-	VnpTxnRef        string    `json:"vnp_txn_ref,omitempty"`
-	VnpTransactionNo string    `json:"vnp_transaction_no,omitempty"`
-	UnreadCount      int64     `json:"unread_count,omitempty"`
-	LastMessage      string    `json:"last_message,omitempty"`
+	ID               uint       `json:"id"`
+	UserID           uint       `json:"user_id"`
+	StudentName      string     `json:"student_name,omitempty"`
+	StudentEmail     string     `json:"student_email,omitempty"`
+	PTPackageID      uint       `json:"pt_package_id"`
+	PackageTitle     string     `json:"package_title,omitempty"`
+	TrainerProfileID uint       `json:"trainer_profile_id"`
+	TrainerName      string     `json:"trainer_name,omitempty"`
+	SessionTotal     int        `json:"session_total"`
+	SessionUsed      int        `json:"session_used"`
+	SessionLeft      int        `json:"session_left"`
+	Price            float64    `json:"price"`
+	Currency         string     `json:"currency"`
+	Status           string     `json:"status"`
+	StartsAt         time.Time  `json:"starts_at"`
+	ExpiresAt        time.Time  `json:"expires_at"`
+	PaymentProvider  string     `json:"payment_provider,omitempty"`
+	VnpTxnRef        string     `json:"vnp_txn_ref,omitempty"`
+	VnpTransactionNo string     `json:"vnp_transaction_no,omitempty"`
+	UnreadCount      int64      `json:"unread_count,omitempty"`
+	LastMessage      string     `json:"last_message,omitempty"`
 	LastMessageAt    *time.Time `json:"last_message_at,omitempty"`
-	PendingOffers    int64     `json:"pending_offers,omitempty"`
+	PendingOffers    int64      `json:"pending_offers,omitempty"`
 }
 
 type LogPTSessionReq struct {
@@ -230,6 +230,7 @@ type PTEarningRes struct {
 	TrainerProfileID uint      `json:"trainer_profile_id"`
 	TrainerName      string    `json:"trainer_name,omitempty"`
 	UserPTPackageID  uint      `json:"user_pt_package_id"`
+	SessionOfferID   *uint     `json:"session_offer_id,omitempty"`
 	PackageTitle     string    `json:"package_title,omitempty"`
 	StudentName      string    `json:"student_name,omitempty"`
 	StudentEmail     string    `json:"student_email,omitempty"`
@@ -250,7 +251,33 @@ type EarningsSummaryRes struct {
 	Total         int64          `json:"total"`
 }
 
-	// MembershipMeRes wraps a user's current + recent gym memberships.
+// TodayPackageItemRes is one PT-package purchase, for the "today" and
+// "unseen" lists on the PT dashboard.
+type TodayPackageItemRes struct {
+	ID           uint      `json:"id"`
+	StudentName  string    `json:"student_name"`
+	StudentEmail string    `json:"student_email"`
+	PackageTitle string    `json:"package_title"`
+	Price        float64   `json:"price"`
+	Currency     string    `json:"currency"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// MyTodayActivityRes powers the PT-side "hoạt động hôm nay" panel — today's
+// package sales + commission, and any new-student purchases the trainer
+// hasn't acknowledged yet (see MarkStudentsSeen).
+type MyTodayActivityRes struct {
+	Date             string                `json:"date"`
+	TodayRevenue     float64               `json:"today_revenue"`
+	TodayPTEarnings  float64               `json:"today_pt_earnings"`
+	TodayNewStudents int                   `json:"today_new_students"`
+	TodayPackages    []TodayPackageItemRes `json:"today_packages"`
+	Currency         string                `json:"currency"`
+	UnseenCount      int                   `json:"unseen_count"`
+	UnseenPackages   []TodayPackageItemRes `json:"unseen_packages"`
+}
+
+// MembershipMeRes wraps a user's current + recent gym memberships.
 type MembershipMeRes struct {
 	Active *GymMembershipRes  `json:"active"`
 	Recent []GymMembershipRes `json:"recent"`
@@ -262,6 +289,16 @@ type CheckInTokenRes struct {
 	MembershipID uint      `json:"membership_id"`
 	PlanName     string    `json:"plan_name,omitempty"`
 	EndDate      time.Time `json:"end_date"`
+}
+
+type AdminCreateGymMembershipReq struct {
+	UserID uint `json:"user_id" binding:"required"`
+	PlanID uint `json:"plan_id" binding:"required"`
+}
+
+type AdminCreateUserPTPackageReq struct {
+	UserID    uint `json:"user_id" binding:"required"`
+	PackageID uint `json:"pt_package_id" binding:"required"`
 }
 
 type VerifyCheckInReq struct {
@@ -282,6 +319,18 @@ type GymCheckInRes struct {
 	Note         string    `json:"note,omitempty"`
 }
 
+type GymCheckInStatsRes struct {
+	ActiveMembers      int64 `json:"active_members"`
+	CheckedInToday     int64 `json:"checked_in_today"`
+	UniqueMembersToday int64 `json:"unique_members_today"`
+}
+
+type GymCheckInListRes struct {
+	Total int64              `json:"total"`
+	Data  []GymCheckInRes    `json:"data"`
+	Stats GymCheckInStatsRes `json:"stats"`
+}
+
 type SendChatMessageReq struct {
 	Body string `json:"body" binding:"required"`
 }
@@ -298,6 +347,15 @@ type CompleteSessionOfferReq struct {
 
 type RescheduleSessionOfferReq struct {
 	StartsAt time.Time `json:"starts_at" binding:"required"`
+}
+
+// LogSessionDirectReq lets a trainer record a session that was scheduled entirely
+// outside the app (e.g. agreed over Zalo) — skips propose/accept and goes straight
+// to "awaiting confirmation", same as CompleteSessionOfferReq but self-contained.
+type LogSessionDirectReq struct {
+	TaughtAt      time.Time `json:"taught_at"`
+	ProofImageURL string    `json:"proof_image_url" binding:"required"`
+	Note          string    `json:"note"`
 }
 
 type SessionOfferRes struct {
@@ -323,6 +381,16 @@ type SessionOfferRes struct {
 	EndsAt            *time.Time `json:"ends_at,omitempty"`
 	BookedViaSlot     bool       `json:"booked_via_slot"`
 	CreatedAt         time.Time  `json:"created_at"`
+}
+
+// AdminSessionReviewRes is one row in the admin "pending session review" queue —
+// staff use StudentCheckedInThatDay to sanity-check the proof against the gym's
+// own QR check-in log before approving.
+type AdminSessionReviewRes struct {
+	SessionOfferRes
+	TrainerName             string `json:"trainer_name,omitempty"`
+	PackageTitle            string `json:"package_title,omitempty"`
+	StudentCheckedInThatDay bool   `json:"student_checked_in_that_day"`
 }
 
 type WorkingHoursItem struct {
@@ -364,6 +432,29 @@ type BookSlotReq struct {
 	SourceContentType string    `json:"source_content_type"`
 	SourceContentID   uint      `json:"source_content_id"`
 	SourceTitle       string    `json:"source_title"`
+}
+
+type CreateRecurringBookingReq struct {
+	UserPTPackageID uint `json:"user_pt_package_id" binding:"required"`
+	Weekday         int  `json:"weekday" binding:"min=0,max=6"`
+	StartMinute     int  `json:"start_minute" binding:"min=0,max=1439"`
+}
+
+type RecurringBookingRes struct {
+	ID                uint       `json:"id"`
+	UserPTPackageID   uint       `json:"user_pt_package_id"`
+	TrainerProfileID  uint       `json:"trainer_profile_id"`
+	StudentUserID     uint       `json:"student_user_id"`
+	StudentName       string     `json:"student_name,omitempty"`
+	StudentEmail      string     `json:"student_email,omitempty"`
+	PackageTitle      string     `json:"package_title,omitempty"`
+	Weekday           int        `json:"weekday"`
+	StartMinute       int        `json:"start_minute"`
+	EndMinute         int        `json:"end_minute"`
+	Status            string     `json:"status"`
+	OccurrencesQueued int        `json:"occurrences_queued,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	LastGeneratedFor  *time.Time `json:"last_generated_for,omitempty"`
 }
 
 type BlockSlotReq struct {
@@ -420,32 +511,32 @@ type ContentFunnelItemRes struct {
 }
 
 type ContentFunnelRes struct {
-	TrainerProfileID uint                   `json:"trainer_profile_id"`
-	DisplayName      string                 `json:"display_name"`
-	Articles         int                    `json:"articles"`
-	Workouts         int                    `json:"workouts"`
-	Routines         int                    `json:"routines"`
-	MealPlans        int                    `json:"meal_plans"`
-	TotalViews       int64                  `json:"total_views"`
-	TotalLikes       int64                  `json:"total_likes"`
-	TotalSaves       int64                  `json:"total_saves"`
-	ProfileVisits    int64                  `json:"profile_visits"`
-	BookingsFromContent int64               `json:"bookings_from_content"`
-	Items            []ContentFunnelItemRes `json:"items"`
+	TrainerProfileID    uint                   `json:"trainer_profile_id"`
+	DisplayName         string                 `json:"display_name"`
+	Articles            int                    `json:"articles"`
+	Workouts            int                    `json:"workouts"`
+	Routines            int                    `json:"routines"`
+	MealPlans           int                    `json:"meal_plans"`
+	TotalViews          int64                  `json:"total_views"`
+	TotalLikes          int64                  `json:"total_likes"`
+	TotalSaves          int64                  `json:"total_saves"`
+	ProfileVisits       int64                  `json:"profile_visits"`
+	BookingsFromContent int64                  `json:"bookings_from_content"`
+	Items               []ContentFunnelItemRes `json:"items"`
 }
 
 type TrainerQualityRes struct {
-	TrainerProfileID   uint    `json:"trainer_profile_id"`
-	DisplayName        string  `json:"display_name"`
-	Rating             float64 `json:"rating"`
-	Reviews            int64   `json:"reviews"`
-	CompletedSessions  int64   `json:"completed_sessions"`
-	CancellationRate   float64 `json:"cancellation_rate"`
-	NoShowCount        int64   `json:"no_show_count"`
-	NoShowRate         float64 `json:"no_show_rate"`
-	ClientRetention    float64 `json:"client_retention"`
-	ActiveClients      int     `json:"active_clients"`
-	TotalClientsEver   int     `json:"total_clients_ever"`
+	TrainerProfileID  uint    `json:"trainer_profile_id"`
+	DisplayName       string  `json:"display_name"`
+	Rating            float64 `json:"rating"`
+	Reviews           int64   `json:"reviews"`
+	CompletedSessions int64   `json:"completed_sessions"`
+	CancellationRate  float64 `json:"cancellation_rate"`
+	NoShowCount       int64   `json:"no_show_count"`
+	NoShowRate        float64 `json:"no_show_rate"`
+	ClientRetention   float64 `json:"client_retention"`
+	ActiveClients     int     `json:"active_clients"`
+	TotalClientsEver  int     `json:"total_clients_ever"`
 }
 
 type CreatePTReviewReq struct {
@@ -477,11 +568,11 @@ type PTReviewRes struct {
 }
 
 type CalendarDaySlotRes struct {
-	Hour     int              `json:"hour"`
-	Minute   int              `json:"minute"`
-	Status   string           `json:"status"` // available | booked | blocked | empty
-	Offer    *SessionOfferRes `json:"offer,omitempty"`
-	Label    string           `json:"label,omitempty"`
+	Hour   int              `json:"hour"`
+	Minute int              `json:"minute"`
+	Status string           `json:"status"` // available | booked | blocked | empty
+	Offer  *SessionOfferRes `json:"offer,omitempty"`
+	Label  string           `json:"label,omitempty"`
 }
 
 type CalendarDayRes struct {
@@ -497,16 +588,18 @@ type TrainerCalendarRes struct {
 }
 
 type ChatMessageRes struct {
-	ID               uint             `json:"id"`
-	UserPTPackageID  uint             `json:"user_pt_package_id"`
-	SenderUserID     uint             `json:"sender_user_id"`
-	SenderName       string           `json:"sender_name,omitempty"`
-	SenderAvatarURL  string           `json:"sender_avatar_url,omitempty"`
-	Body             string           `json:"body"`
-	MessageType      string           `json:"message_type"`
-	SessionOfferID   *uint            `json:"session_offer_id,omitempty"`
-	SessionOffer     *SessionOfferRes `json:"session_offer,omitempty"`
-	CreatedAt        time.Time        `json:"created_at"`
+	ID                uint             `json:"id"`
+	UserPTPackageID   uint             `json:"user_pt_package_id"`
+	SenderUserID      uint             `json:"sender_user_id"`
+	SenderName        string           `json:"sender_name,omitempty"`
+	SenderAvatarURL   string           `json:"sender_avatar_url,omitempty"`
+	Body              string           `json:"body"`
+	MessageType       string           `json:"message_type"`
+	SessionOfferID    *uint            `json:"session_offer_id,omitempty"`
+	SessionOffer      *SessionOfferRes `json:"session_offer,omitempty"`
+	SharedContentType string           `json:"shared_content_type,omitempty"`
+	SharedContentID   *uint            `json:"shared_content_id,omitempty"`
+	CreatedAt         time.Time        `json:"created_at"`
 }
 
 type ChatMessagesRes struct {

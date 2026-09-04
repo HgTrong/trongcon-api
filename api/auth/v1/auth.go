@@ -14,6 +14,16 @@ type SignupReq struct {
 	LastName  string `json:"last_name"`
 	Gender    string `json:"gender" binding:"omitempty,oneof=male female other prefer_not_to_say"`
 	Language  string `json:"language"`
+	OTP       string `json:"otp" binding:"required,min=4,max=16"`
+}
+
+type SignupRequestOTPReq struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+type SignupRequestOTPRes struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
 }
 
 type LoginRes struct {

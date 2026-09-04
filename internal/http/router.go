@@ -9,6 +9,7 @@ import (
 	"trongcon-api/internal/config"
 	authctl "trongcon-api/internal/controller/auth"
 	aictl "trongcon-api/internal/controller/ai"
+	contentsharectl "trongcon-api/internal/controller/content_share"
 	savedctl "trongcon-api/internal/controller/saved_workout"
 	foodlogctl "trongcon-api/internal/controller/food_log"
 	mytrainctl "trongcon-api/internal/controller/my_train"
@@ -64,6 +65,7 @@ func NewRouter(cfg config.Config, deps Deps) *gin.Engine {
 			Subscription: deps.Subscription,
 			Upload:       deps.Admin.Upload,
 			GymCommerce:  deps.Admin.GymCommerce,
+			ContentShare: deps.ContentShare,
 		}, cfg.JWTSecret, deps.Premium)
 
 		publicrouter.Register(v1, deps.Public, cfg.JWTSecret, deps.Premium)
@@ -90,6 +92,7 @@ type Deps struct {
 	Enrollment   *enrollctl.Controller
 	AI           *aictl.Controller
 	Subscription *subctl.Controller
+	ContentShare *contentsharectl.Controller
 	Premium      service.UserSubscriptionService
 	Admin        adminrouter.Controllers
 	Public       publicrouter.Controllers

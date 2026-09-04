@@ -15,9 +15,12 @@ import (
 )
 
 type RevenueService interface {
-	Overview(ctx context.Context, leaderboardLimit int) (*revenuev1.OverviewRes, error)
-	ListPayments(ctx context.Context, page, limit int, source string) (*revenuev1.PaymentsRes, error)
-	PTLeaderboard(ctx context.Context, limit int, sortBy string) (*revenuev1.PTLeaderboardRes, error)
+	// from/to scope the new Selected*/RangeFrom/RangeTo fields; pass nil for
+	// both to have them default to "today" (fully backward compatible).
+	Overview(ctx context.Context, leaderboardLimit int, from, to *time.Time) (*revenuev1.OverviewRes, error)
+	ListPayments(ctx context.Context, page, limit int, source string, from, to *time.Time) (*revenuev1.PaymentsRes, error)
+	PTLeaderboard(ctx context.Context, limit int, sortBy string, from, to *time.Time) (*revenuev1.PTLeaderboardRes, error)
+	TodayActivity(ctx context.Context) (*revenuev1.TodayActivityRes, error)
 }
 
 type revenueService struct {
@@ -128,7 +131,26 @@ func (s *revenueService) snap(ctx context.Context, from, to *time.Time) (revenue
 	}, nil
 }
 
-func (s *revenueService) Overview(ctx context.Context, leaderboardLimit int) (*revenuev1.OverviewRes, error) {
+// resolveRange defaults an optional [from, to) window to "today" (UTC), and
+// returns the immediately preceding window of equal length for comparison —
+// generalizes the old fixed "today vs yesterday" to any caller-chosen range.
+func resolveRange(from, to *time.Time) (rangeFrom, rangeTo, prevFrom, prevTo time.Time) {
+	now := time.Now().UTC()
+	if from == nil || to == nil {
+		rangeFrom, rangeTo = dayBoundsUTC(now)
+	} else {
+		rangeFrom, rangeTo = from.UTC(), to.UTC()
+	}
+	length := rangeTo.Sub(rangeFrom)
+	if length <= 0 {
+		length = 24 * time.Hour
+	}
+	prevTo = rangeFrom
+	prevFrom = rangeFrom.Add(-length)
+	return
+}
+
+func (s *revenueService) Overview(ctx context.Context, leaderboardLimit int, from, to *time.Time) (*revenuev1.OverviewRes, error) {
 	now := time.Now().UTC()
 	todayStart, todayEnd := dayBoundsUTC(now)
 	ystStart, ystEnd := dayBoundsUTC(now.AddDate(0, 0, -1))
@@ -156,30 +178,34 @@ func (s *revenueService) Overview(ctx context.Context, leaderboardLimit int) (*r
 		return nil, err
 	}
 
+	rangeFrom, rangeTo, prevFrom, prevTo := resolveRange(from, to)
+	selected, err := s.snap(ctx, &rangeFrom, &rangeTo)
+	if err != nil {
+		return nil, err
+	}
+	previousPeriod, err := s.snap(ctx, &prevFrom, &prevTo)
+	if err != nil {
+		return nil, err
+	}
+	selectedBySource, err := s.bySource(ctx, &rangeFrom, &rangeTo)
+	if err != nil {
+		return nil, err
+	}
+	selectedBoard, _ := s.ptBoard(ctx, leaderboardLimit, "pt_share", &rangeFrom, &rangeTo)
+
 	// Leaderboard is best-effort — don't blank the whole overview if ranking query fails.
-	board, _ := s.ptBoard(ctx, leaderboardLimit, "pt_share")
+	board, _ := s.ptBoard(ctx, leaderboardLimit, "pt_share", nil, nil)
 	series, _ := s.dailySeries(ctx, 30)
 
-	bySource := []revenuev1.SourceBreakdown{
-		{Source: "premium", Label: "Premium số", Gross: allTime.Premium, Platform: allTime.Premium, Orders: 0},
-		{Source: "gym_membership", Label: "Thẻ hội viên", Gross: allTime.GymPass, Platform: allTime.GymPass, Orders: 0},
-		{Source: "pt_package", Label: "Gói PT", Gross: allTime.PTPackage, Platform: allTime.Platform - allTime.Premium - allTime.GymPass, PTShare: allTime.PTShare, Orders: 0},
-	}
-	// fill order counts all-time
-	if _, n, e := s.sumPremium(ctx, nil, nil); e == nil {
-		bySource[0].Orders = n
-	}
-	if _, n, e := s.sumGym(ctx, nil, nil); e == nil {
-		bySource[1].Orders = n
-	}
-	if _, _, _, n, e := s.sumPT(ctx, nil, nil); e == nil {
-		bySource[2].Orders = n
+	bySource, err := s.bySource(ctx, nil, nil)
+	if err != nil {
+		return nil, err
 	}
 
 	return &revenuev1.OverviewRes{
-		Currency:      "VND",
-		Today:         today,
-		Yesterday:     yesterday,
+		Currency:  "VND",
+		Today:     today,
+		Yesterday: yesterday,
 		ChangePct: revenuev1.ChangePct{
 			Gross:    pctChange(today.Gross, yesterday.Gross),
 			Platform: pctChange(today.Platform, yesterday.Platform),
@@ -195,7 +221,44 @@ func (s *revenueService) Overview(ctx context.Context, leaderboardLimit int) (*r
 		PTLeaderboard: board,
 		DailySeries:   series,
 		GeneratedAt:   now,
+
+		RangeFrom: rangeFrom.Format("2006-01-02"),
+		RangeTo:   rangeTo.Add(-time.Second).Format("2006-01-02"),
+		Selected:  selected,
+		PreviousPeriod: previousPeriod,
+		SelectedChangePct: revenuev1.ChangePct{
+			Gross:    pctChange(selected.Gross, previousPeriod.Gross),
+			Platform: pctChange(selected.Platform, previousPeriod.Platform),
+			PTShare:  pctChange(selected.PTShare, previousPeriod.PTShare),
+			Orders:   pctChange(float64(selected.Orders), float64(previousPeriod.Orders)),
+		},
+		SelectedBySource:    selectedBySource,
+		SelectedLeaderboard: selectedBoard,
 	}, nil
+}
+
+// bySource breaks a [from, to) window down by revenue source (premium, gym
+// pass, PT package) — nil/nil means all-time.
+func (s *revenueService) bySource(ctx context.Context, from, to *time.Time) ([]revenuev1.SourceBreakdown, error) {
+	snap, err := s.snap(ctx, from, to)
+	if err != nil {
+		return nil, err
+	}
+	out := []revenuev1.SourceBreakdown{
+		{Source: "premium", Label: "Premium số", Gross: snap.Premium, Platform: snap.Premium},
+		{Source: "gym_membership", Label: "Thẻ hội viên", Gross: snap.GymPass, Platform: snap.GymPass},
+		{Source: "pt_package", Label: "Gói PT", Gross: snap.PTPackage, Platform: snap.Platform - snap.Premium - snap.GymPass, PTShare: snap.PTShare},
+	}
+	if _, n, e := s.sumPremium(ctx, from, to); e == nil {
+		out[0].Orders = n
+	}
+	if _, n, e := s.sumGym(ctx, from, to); e == nil {
+		out[1].Orders = n
+	}
+	if _, _, _, n, e := s.sumPT(ctx, from, to); e == nil {
+		out[2].Orders = n
+	}
+	return out, nil
 }
 
 func (s *revenueService) dailySeries(ctx context.Context, days int) ([]revenuev1.DailyPoint, error) {
@@ -315,7 +378,7 @@ func (s *revenueService) dailySeries(ctx context.Context, days int) ([]revenuev1
 	return out, nil
 }
 
-func (s *revenueService) ptBoard(ctx context.Context, limit int, sortBy string) ([]revenuev1.PTLeaderboardRow, error) {
+func (s *revenueService) ptBoard(ctx context.Context, limit int, sortBy string, from, to *time.Time) ([]revenuev1.PTLeaderboardRow, error) {
 	if limit <= 0 || limit > 50 {
 		limit = 10
 	}
@@ -342,6 +405,17 @@ func (s *revenueService) ptBoard(ctx context.Context, limit int, sortBy string) 
 		Orders           int64   `gorm:"column:orders"`
 	}
 	var rows []row
+	where := "e.deleted_at IS NULL"
+	args := []interface{}{}
+	if from != nil {
+		where += " AND e.created_at >= ?"
+		args = append(args, *from)
+	}
+	if to != nil {
+		where += " AND e.created_at < ?"
+		args = append(args, *to)
+	}
+	args = append(args, limit)
 	// trainer_profiles has no avatar_url — use users.profile_picture instead.
 	err := s.db.WithContext(ctx).Raw(`
 		SELECT
@@ -356,11 +430,11 @@ func (s *revenueService) ptBoard(ctx context.Context, limit int, sortBy string) 
 		FROM pt_earnings e
 		LEFT JOIN trainer_profiles t ON t.id = e.trainer_profile_id AND t.deleted_at IS NULL
 		LEFT JOIN users u ON u.id = t.user_id AND u.deleted_at IS NULL
-		WHERE e.deleted_at IS NULL
+		WHERE `+where+`
 		GROUP BY e.trainer_profile_id, t.display_name, t.title, u.profile_picture
 		ORDER BY `+orderCol+`
 		LIMIT ?
-	`, limit).Scan(&rows).Error
+	`, args...).Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
@@ -385,8 +459,8 @@ func (s *revenueService) ptBoard(ctx context.Context, limit int, sortBy string) 
 	return out, nil
 }
 
-func (s *revenueService) PTLeaderboard(ctx context.Context, limit int, sortBy string) (*revenuev1.PTLeaderboardRes, error) {
-	rows, err := s.ptBoard(ctx, limit, sortBy)
+func (s *revenueService) PTLeaderboard(ctx context.Context, limit int, sortBy string, from, to *time.Time) (*revenuev1.PTLeaderboardRes, error) {
+	rows, err := s.ptBoard(ctx, limit, sortBy, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +472,7 @@ func (s *revenueService) PTLeaderboard(ctx context.Context, limit int, sortBy st
 	}, nil
 }
 
-func (s *revenueService) ListPayments(ctx context.Context, page, limit int, source string) (*revenuev1.PaymentsRes, error) {
+func (s *revenueService) ListPayments(ctx context.Context, page, limit int, source string, from, to *time.Time) (*revenuev1.PaymentsRes, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -407,11 +481,20 @@ func (s *revenueService) ListPayments(ctx context.Context, page, limit int, sour
 	}
 	source = strings.ToLower(strings.TrimSpace(source))
 	all := make([]revenuev1.PaymentRow, 0, 200)
+	applyRange := func(q *gorm.DB) *gorm.DB {
+		if from != nil {
+			q = q.Where("created_at >= ?", *from)
+		}
+		if to != nil {
+			q = q.Where("created_at < ?", *to)
+		}
+		return q
+	}
 
 	if source == "" || source == "premium" {
 		var hist []entity.PaymentHistory
-		q := s.db.WithContext(ctx).Preload("User").
-			Where("status = ?", entity.PHStatusSucceeded).
+		q := applyRange(s.db.WithContext(ctx).Preload("User").
+			Where("status = ?", entity.PHStatusSucceeded)).
 			Order("id DESC").Limit(200)
 		if err := q.Find(&hist).Error; err != nil {
 			return nil, err
@@ -442,8 +525,8 @@ func (s *revenueService) ListPayments(ctx context.Context, page, limit int, sour
 
 	if source == "" || source == "gym_membership" || source == "gym" {
 		var memb []entity.UserGymMembership
-		q := s.db.WithContext(ctx).Preload("User").Preload("GymMembershipPlan").
-			Where("status = ?", entity.GymMemStatusActive).
+		q := applyRange(s.db.WithContext(ctx).Preload("User").Preload("GymMembershipPlan").
+			Where("status = ?", entity.GymMemStatusActive)).
 			Order("id DESC").Limit(200)
 		if err := q.Find(&memb).Error; err != nil {
 			return nil, err
@@ -478,11 +561,11 @@ func (s *revenueService) ListPayments(ctx context.Context, page, limit int, sour
 
 	if source == "" || source == "pt_package" || source == "pt" {
 		var earns []entity.PTEarning
-		q := s.db.WithContext(ctx).
+		q := applyRange(s.db.WithContext(ctx).
 			Preload("Trainer").
 			Preload("UserPTPackage").
 			Preload("UserPTPackage.User").
-			Preload("UserPTPackage.PTPackage").
+			Preload("UserPTPackage.PTPackage")).
 			Order("id DESC").Limit(200)
 		if err := q.Find(&earns).Error; err != nil {
 			return nil, err
@@ -538,6 +621,144 @@ func (s *revenueService) ListPayments(ctx context.Context, page, limit int, sour
 		Limit:    limit,
 		Currency: "VND",
 		Data:     all[start:end],
+	}, nil
+}
+
+// TodayActivity feeds the admin dashboard's "hoạt động hôm nay" panel: how many
+// new members, how much money, and exactly who bought what today — without
+// admin having to open every list page to piece it together.
+func (s *revenueService) TodayActivity(ctx context.Context) (*revenuev1.TodayActivityRes, error) {
+	now := time.Now().UTC()
+	todayStart, todayEnd := dayBoundsUTC(now)
+
+	var newUsers int64
+	if err := s.db.WithContext(ctx).Model(&entity.User{}).
+		Where("created_at >= ? AND created_at < ?", todayStart, todayEnd).
+		Count(&newUsers).Error; err != nil {
+		return nil, err
+	}
+
+	var memberships []entity.UserGymMembership
+	if err := s.db.WithContext(ctx).Preload("User").Preload("GymMembershipPlan").
+		Where("status = ? AND created_at >= ? AND created_at < ?", entity.GymMemStatusActive, todayStart, todayEnd).
+		Order("id DESC").
+		Find(&memberships).Error; err != nil {
+		return nil, err
+	}
+	gymItems := make([]revenuev1.TodayGymMembershipItem, 0, len(memberships))
+	for i := range memberships {
+		m := &memberships[i]
+		name, email := "", ""
+		if m.User.ID != 0 {
+			email = m.User.Email
+			name = strings.TrimSpace(m.User.Name)
+			if name == "" {
+				name = email
+			}
+		}
+		plan := "Thẻ hội viên"
+		if m.GymMembershipPlan.ID != 0 {
+			plan = m.GymMembershipPlan.Name
+		}
+		gymItems = append(gymItems, revenuev1.TodayGymMembershipItem{
+			ID: m.ID, UserName: name, UserEmail: email, PlanName: plan,
+			Price: m.Price, Currency: defaultCur(m.Currency), CreatedAt: m.CreatedAt,
+		})
+	}
+
+	var ptPackages []entity.UserPTPackage
+	if err := s.db.WithContext(ctx).Preload("User").Preload("PTPackage").Preload("PTPackage.Trainer").
+		Where("status = ? AND created_at >= ? AND created_at < ?", entity.PTPkgStatusActive, todayStart, todayEnd).
+		Order("id DESC").
+		Find(&ptPackages).Error; err != nil {
+		return nil, err
+	}
+	ptItems := make([]revenuev1.TodayPTPackageItem, 0, len(ptPackages))
+	for i := range ptPackages {
+		p := &ptPackages[i]
+		name, email := "", ""
+		if p.User.ID != 0 {
+			email = p.User.Email
+			name = strings.TrimSpace(p.User.Name)
+			if name == "" {
+				name = email
+			}
+		}
+		title, trainer, sessions := "Gói PT", "", p.SessionTotal
+		if p.PTPackage.ID != 0 {
+			title = p.PTPackage.Title
+			if p.PTPackage.Trainer.ID != 0 {
+				trainer = p.PTPackage.Trainer.DisplayName
+			}
+		}
+		ptItems = append(ptItems, revenuev1.TodayPTPackageItem{
+			ID: p.ID, StudentName: name, StudentEmail: email, TrainerName: trainer,
+			PackageTitle: title, SessionCount: sessions, Price: p.Price,
+			Currency: defaultCur(p.Currency), CreatedAt: p.CreatedAt,
+		})
+	}
+
+	var subs []entity.UserSubscription
+	if err := s.db.WithContext(ctx).Preload("User").Preload("SubscriptionPlan").
+		Where("status = ? AND payment_provider != ? AND created_at >= ? AND created_at < ?",
+			entity.SubStatusActive, entity.PaymentProviderMembership, todayStart, todayEnd).
+		Order("id DESC").
+		Find(&subs).Error; err != nil {
+		return nil, err
+	}
+	premiumItems := make([]revenuev1.TodayPremiumItem, 0, len(subs))
+	for i := range subs {
+		sub := &subs[i]
+		name, email := "", ""
+		if sub.User.ID != 0 {
+			email = sub.User.Email
+			name = strings.TrimSpace(sub.User.Name)
+			if name == "" {
+				name = email
+			}
+		}
+		plan := "Premium"
+		if sub.SubscriptionPlan.ID != 0 {
+			plan = sub.SubscriptionPlan.PlanName
+		}
+		premiumItems = append(premiumItems, revenuev1.TodayPremiumItem{
+			ID: sub.ID, UserName: name, UserEmail: email, PlanName: plan,
+			Price: sub.FinalPrice, Currency: defaultCur(sub.Currency), CreatedAt: sub.CreatedAt,
+		})
+	}
+
+	// "Money in today" here means gross value of today's new signups
+	// (membership + PT package + premium) — not PT commission recognized
+	// today via sumPT/snap(), which can lag purchase by weeks (a session only
+	// gets taught, and its PTEarning row created, well after the package is
+	// bought). Using snap() here made a same-day PT package sale show as "0đ
+	// doanh thu" — confusing on a panel whose whole point is "who signed up
+	// today, for how much".
+	var gymGross, ptGross, premiumGross float64
+	for i := range gymItems {
+		gymGross += gymItems[i].Price
+	}
+	for i := range ptItems {
+		ptGross += ptItems[i].Price
+	}
+	for i := range premiumItems {
+		premiumGross += premiumItems[i].Price
+	}
+	revenue := revenuev1.MoneySnap{
+		Gross:     gymGross + ptGross + premiumGross,
+		Orders:    int64(len(gymItems) + len(ptItems) + len(premiumItems)),
+		GymPass:   gymGross,
+		PTPackage: ptGross,
+		Premium:   premiumGross,
+	}
+
+	return &revenuev1.TodayActivityRes{
+		Date:              todayStart.Format("2006-01-02"),
+		NewUsers:          newUsers,
+		Revenue:           revenue,
+		NewGymMemberships: gymItems,
+		NewPTPackages:     ptItems,
+		NewPremium:        premiumItems,
 	}, nil
 }
 

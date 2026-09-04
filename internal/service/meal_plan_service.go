@@ -21,7 +21,7 @@ const defaultMealPlanMeals = 3
 type MealPlanService interface {
 	Create(ctx context.Context, req *mealplanv1.CreateReq) (*mealplanv1.CreateRes, error)
 	GetByID(ctx context.Context, id uint) (*mealplanv1.GetRes, error)
-	GetByIDPublic(ctx context.Context, id uint) (*mealplanv1.GetRes, error)
+	GetByIDPublic(ctx context.Context, id, viewerUserID uint) (*mealplanv1.GetRes, error)
 	Update(ctx context.Context, id uint, req *mealplanv1.UpdateReq) (*mealplanv1.UpdateRes, error)
 	Delete(ctx context.Context, id uint) error
 	List(ctx context.Context, req *mealplanv1.ListReq) (*mealplanv1.ListRes, error)
@@ -40,11 +40,12 @@ type mealPlanService struct {
 	foodRepo    repository.FoodRepository
 	userRepo    repository.UserRepository
 	trainerRepo repository.TrainerProfileRepository
+	shareRepo   repository.ContentShareRepository
 	growth      PTGrowthTracker
 }
 
-func NewMealPlanService(repo repository.MealPlanRepository, foodRepo repository.FoodRepository, userRepo repository.UserRepository, trainerRepo repository.TrainerProfileRepository, growth PTGrowthTracker) MealPlanService {
-	return &mealPlanService{repo: repo, foodRepo: foodRepo, userRepo: userRepo, trainerRepo: trainerRepo, growth: growth}
+func NewMealPlanService(repo repository.MealPlanRepository, foodRepo repository.FoodRepository, userRepo repository.UserRepository, trainerRepo repository.TrainerProfileRepository, shareRepo repository.ContentShareRepository, growth PTGrowthTracker) MealPlanService {
+	return &mealPlanService{repo: repo, foodRepo: foodRepo, userRepo: userRepo, trainerRepo: trainerRepo, shareRepo: shareRepo, growth: growth}
 }
 
 func normalizeQty(v float64) float64 {
@@ -266,7 +267,7 @@ func (s *mealPlanService) GetByID(ctx context.Context, id uint) (*mealplanv1.Get
 	return &mealplanv1.GetRes{MealPlan: toMealPlanRes(mp)}, nil
 }
 
-func (s *mealPlanService) GetByIDPublic(ctx context.Context, id uint) (*mealplanv1.GetRes, error) {
+func (s *mealPlanService) GetByIDPublic(ctx context.Context, id, viewerUserID uint) (*mealplanv1.GetRes, error) {
 	mp, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -275,7 +276,13 @@ func (s *mealPlanService) GetByIDPublic(ctx context.Context, id uint) (*mealplan
 		return nil, err
 	}
 	if !mp.IsPublic {
-		return nil, ErrMealPlanNotFound
+		shared := false
+		if viewerUserID > 0 && s.shareRepo != nil {
+			shared, _ = s.shareRepo.IsSharedWithUser(ctx, ContentTypeMealPlan, mp.ID, viewerUserID)
+		}
+		if !shared {
+			return nil, ErrMealPlanNotFound
+		}
 	}
 	if views, err := s.repo.IncrementViews(ctx, mp.ID); err == nil {
 		mp.Views = views

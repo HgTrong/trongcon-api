@@ -17,6 +17,8 @@ import (
 type checkInStore interface {
 	Create(ctx context.Context, row *entity.GymCheckIn) error
 	ListRecent(ctx context.Context, limit int) ([]entity.GymCheckIn, error)
+	CountToday(ctx context.Context) (int64, int64, error)
+	CheckedInOn(ctx context.Context, userID uint, day time.Time) (bool, error)
 }
 
 // PremiumFromMembership is implemented by UserSubscriptionService.
@@ -207,9 +209,9 @@ func (s *gymCommerceService) VerifyCheckIn(ctx context.Context, staffUserID uint
 	}, nil
 }
 
-func (s *gymCommerceService) ListRecentCheckIns(ctx context.Context, limit int) (*gcv1.ListRes, error) {
+func (s *gymCommerceService) ListRecentCheckIns(ctx context.Context, limit int) (*gcv1.GymCheckInListRes, error) {
 	if s.checkInCreate == nil {
-		return &gcv1.ListRes{Total: 0, Data: []gcv1.GymCheckInRes{}}, nil
+		return &gcv1.GymCheckInListRes{Total: 0, Data: []gcv1.GymCheckInRes{}}, nil
 	}
 	rows, err := s.checkInCreate.ListRecent(ctx, limit)
 	if err != nil {
@@ -224,5 +226,26 @@ func (s *gymCommerceService) ListRecentCheckIns(ctx context.Context, limit int) 
 			CheckedInAt: rows[i].CheckedInAt, Note: rows[i].Note,
 		})
 	}
-	return &gcv1.ListRes{Total: int64(len(out)), Data: out}, nil
+
+	checkedInToday, uniqueToday, err := s.checkInCreate.CountToday(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var activeMembers int64
+	if s.membRepo != nil {
+		_, activeMembers, err = s.membRepo.ListAdmin(ctx, 0, 1, entity.GymMemStatusActive, 0, nil, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &gcv1.GymCheckInListRes{
+		Total: int64(len(out)),
+		Data:  out,
+		Stats: gcv1.GymCheckInStatsRes{
+			ActiveMembers:      activeMembers,
+			CheckedInToday:     checkedInToday,
+			UniqueMembersToday: uniqueToday,
+		},
+	}, nil
 }

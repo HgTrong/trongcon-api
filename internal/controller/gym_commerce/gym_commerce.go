@@ -51,6 +51,23 @@ func queryUintPtr(ctx *gin.Context, name string) *uint {
 	return &u
 }
 
+// queryDateRange reads ?from=YYYY-MM-DD&to=YYYY-MM-DD (both required, `to`
+// inclusive) — missing/invalid input means "no range" (nil, nil).
+func queryDateRange(ctx *gin.Context) (*time.Time, *time.Time) {
+	fromStr := strings.TrimSpace(ctx.Query("from"))
+	toStr := strings.TrimSpace(ctx.Query("to"))
+	if fromStr == "" || toStr == "" {
+		return nil, nil
+	}
+	from, err1 := time.Parse("2006-01-02", fromStr)
+	to, err2 := time.Parse("2006-01-02", toStr)
+	if err1 != nil || err2 != nil {
+		return nil, nil
+	}
+	toExclusive := to.AddDate(0, 0, 1)
+	return &from, &toExclusive
+}
+
 func queryBoolPtr(ctx *gin.Context, name string) *bool {
 	v := strings.TrimSpace(ctx.Query(name))
 	if v == "" {
@@ -194,7 +211,8 @@ func (c *Controller) ListUserGymMemberships(ctx *gin.Context) {
 	if v := queryUintPtr(ctx, "user_id"); v != nil {
 		userID = *v
 	}
-	res, err := c.svc.ListUserGymMembershipsAdmin(ctx.Request.Context(), page, limit, status, userID)
+	from, to := queryDateRange(ctx)
+	res, err := c.svc.ListUserGymMembershipsAdmin(ctx.Request.Context(), page, limit, status, userID, from, to)
 	if err != nil {
 		writeErr(ctx, err)
 		return
@@ -209,6 +227,86 @@ func (c *Controller) AdminActivateMembership(ctx *gin.Context) {
 		return
 	}
 	res, err := c.svc.AdminActivateMembership(ctx.Request.Context(), id)
+	if err != nil {
+		writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, res)
+}
+
+func (c *Controller) AdminCreateGymMembership(ctx *gin.Context) {
+	var req gcv1.AdminCreateGymMembershipReq
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: err.Error()})
+		return
+	}
+	res, err := c.svc.AdminCreateGymMembership(ctx.Request.Context(), req.UserID, req.PlanID)
+	if err != nil {
+		writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, res)
+}
+
+func (c *Controller) AdminCreateUserPTPackage(ctx *gin.Context) {
+	var req gcv1.AdminCreateUserPTPackageReq
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: err.Error()})
+		return
+	}
+	res, err := c.svc.AdminCreateUserPTPackage(ctx.Request.Context(), req.UserID, req.PackageID)
+	if err != nil {
+		writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, res)
+}
+
+func (c *Controller) AdminListPendingSessionReviews(ctx *gin.Context) {
+	page, limit := queryPageLimit(ctx)
+	res, err := c.svc.AdminListPendingSessionReviews(ctx.Request.Context(), page, limit)
+	if err != nil {
+		writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, res)
+}
+
+func (c *Controller) AdminApproveSessionOffer(ctx *gin.Context) {
+	id, err := parseUintParam(ctx, "id")
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: "invalid id"})
+		return
+	}
+	res, err := c.svc.AdminApproveSessionOffer(ctx.Request.Context(), id)
+	if err != nil {
+		writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, res)
+}
+
+func (c *Controller) AdminRejectSessionOffer(ctx *gin.Context) {
+	id, err := parseUintParam(ctx, "id")
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: "invalid id"})
+		return
+	}
+	res, err := c.svc.AdminRejectSessionOffer(ctx.Request.Context(), id)
+	if err != nil {
+		writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, res)
+}
+
+func (c *Controller) AdminUndoSessionApproval(ctx *gin.Context) {
+	id, err := parseUintParam(ctx, "id")
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: "invalid id"})
+		return
+	}
+	res, err := c.svc.AdminUndoSessionApproval(ctx.Request.Context(), id)
 	if err != nil {
 		writeErr(ctx, err)
 		return
@@ -374,7 +472,8 @@ func (c *Controller) ListPTEarnings(ctx *gin.Context) {
 	if v := queryUintPtr(ctx, "trainer_id"); v != nil {
 		trainerID = *v
 	}
-	res, err := c.svc.ListPTEarningsAdmin(ctx.Request.Context(), page, limit, trainerID)
+	from, to := queryDateRange(ctx)
+	res, err := c.svc.ListPTEarningsAdmin(ctx.Request.Context(), page, limit, trainerID, from, to)
 	if err != nil {
 		writeErr(ctx, err)
 		return
@@ -427,7 +526,8 @@ func (c *Controller) ListUserPTPackagesAdmin(ctx *gin.Context) {
 	if v := queryUintPtr(ctx, "user_id"); v != nil {
 		userID = *v
 	}
-	res, err := c.svc.ListUserPTPackagesAdmin(ctx.Request.Context(), page, limit, status, trainerID, userID)
+	from, to := queryDateRange(ctx)
+	res, err := c.svc.ListUserPTPackagesAdmin(ctx.Request.Context(), page, limit, status, trainerID, userID, from, to)
 	if err != nil {
 		writeErr(ctx, err)
 		return
@@ -925,6 +1025,29 @@ func (c *Controller) CreateSessionOffer(ctx *gin.Context) {
 	ctx.JSON(http.StatusCreated, res)
 }
 
+func (c *Controller) LogSessionDirect(ctx *gin.Context) {
+	userID, ok := requireUserID(ctx)
+	if !ok {
+		return
+	}
+	id, err := parseUintParam(ctx, "id")
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: "invalid id"})
+		return
+	}
+	var req gcv1.LogSessionDirectReq
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: err.Error()})
+		return
+	}
+	res, err := c.svc.LogSessionDirect(ctx.Request.Context(), userID, id, &req)
+	if err != nil {
+		writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusCreated, res)
+}
+
 func (c *Controller) AcceptSessionOffer(ctx *gin.Context) {
 	c.mutateSessionOffer(ctx, func(userID, pkgID, offerID uint) (*gcv1.SessionOfferRes, error) {
 		return c.svc.AcceptSessionOffer(ctx.Request.Context(), userID, pkgID, offerID)
@@ -1084,6 +1207,31 @@ func (c *Controller) MyPTEarnings(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusOK, res)
+}
+
+func (c *Controller) MyTodayActivity(ctx *gin.Context) {
+	userID, ok := requireUserID(ctx)
+	if !ok {
+		return
+	}
+	res, err := c.svc.MyTodayActivity(ctx.Request.Context(), userID)
+	if err != nil {
+		writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, res)
+}
+
+func (c *Controller) MarkStudentsSeen(ctx *gin.Context) {
+	userID, ok := requireUserID(ctx)
+	if !ok {
+		return
+	}
+	if err := c.svc.MarkStudentsSeen(ctx.Request.Context(), userID); err != nil {
+		writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 // ============================== Public: PT packages by trainer ==============================
@@ -1273,6 +1421,63 @@ func (c *Controller) BookSlot(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusCreated, res)
+}
+
+func (c *Controller) CreateRecurringBooking(ctx *gin.Context) {
+	userID, ok := requireUserID(ctx)
+	if !ok {
+		return
+	}
+	var req gcv1.CreateRecurringBookingReq
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: err.Error()})
+		return
+	}
+	res, err := c.svc.CreateRecurringBooking(ctx.Request.Context(), userID, &req)
+	if err != nil {
+		writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusCreated, res)
+}
+
+func (c *Controller) ListMyRecurringBookings(ctx *gin.Context) {
+	userID, ok := requireUserID(ctx)
+	if !ok {
+		return
+	}
+	role := ctx.Query("role")
+	var (
+		res *gcv1.ListRes
+		err error
+	)
+	if role == "trainer" {
+		res, err = c.svc.ListMyRecurringBookingsAsTrainer(ctx.Request.Context(), userID)
+	} else {
+		res, err = c.svc.ListMyRecurringBookingsAsStudent(ctx.Request.Context(), userID)
+	}
+	if err != nil {
+		writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, res)
+}
+
+func (c *Controller) CancelRecurringBooking(ctx *gin.Context) {
+	userID, ok := requireUserID(ctx)
+	if !ok {
+		return
+	}
+	id, err := parseUintParam(ctx, "id")
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: "invalid id"})
+		return
+	}
+	if err := c.svc.CancelRecurringBooking(ctx.Request.Context(), userID, id); err != nil {
+		writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func (c *Controller) AdminTrainerOpsOverview(ctx *gin.Context) {

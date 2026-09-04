@@ -3,6 +3,7 @@ package user
 import (
 	authctl "trongcon-api/internal/controller/auth"
 	aictl "trongcon-api/internal/controller/ai"
+	contentsharectl "trongcon-api/internal/controller/content_share"
 	enrollctl "trongcon-api/internal/controller/training_enrollment"
 	foodlogctl "trongcon-api/internal/controller/food_log"
 	gymcommercectl "trongcon-api/internal/controller/gym_commerce"
@@ -30,9 +31,11 @@ type Controllers struct {
 	Subscription *subctl.Controller
 	Upload       *uploadctl.Controller
 	GymCommerce  *gymcommercectl.Controller
+	ContentShare *contentsharectl.Controller
 }
 
 func Register(g *gin.RouterGroup, c Controllers, jwtSecret string, premium service.UserSubscriptionService) {
+	g.POST("/signup/request-otp", c.Auth.RequestSignupOTP)
 	g.POST("/signup", c.Auth.Signup)
 	g.POST("/login", c.Auth.UserLogin)
 	g.POST("/forgot-password", c.Auth.ForgotPassword)
@@ -99,6 +102,7 @@ func Register(g *gin.RouterGroup, c Controllers, jwtSecret string, premium servi
 			authed.POST("/user-pt-packages/:id/messages", gc.SendChatMessage)
 			authed.GET("/user-pt-packages/:id/session-offers", gc.ListSessionOffers)
 			authed.POST("/user-pt-packages/:id/session-offers", gc.CreateSessionOffer)
+			authed.POST("/user-pt-packages/:id/session-offers/log-direct", gc.LogSessionDirect)
 			authed.POST("/user-pt-packages/:id/session-offers/:offerId/accept", gc.AcceptSessionOffer)
 			authed.POST("/user-pt-packages/:id/session-offers/:offerId/decline", gc.DeclineSessionOffer)
 			authed.POST("/user-pt-packages/:id/session-offers/:offerId/cancel", gc.CancelSessionOffer)
@@ -116,10 +120,24 @@ func Register(g *gin.RouterGroup, c Controllers, jwtSecret string, premium servi
 			authed.POST("/pt-booking/blocked-slots", gc.BlockMySlot)
 			authed.DELETE("/pt-booking/blocked-slots/:id", gc.UnblockMySlot)
 			authed.POST("/pt-booking/book-slot", gc.BookSlot)
+			authed.POST("/pt-booking/recurring", gc.CreateRecurringBooking)
+			authed.GET("/pt-booking/recurring", gc.ListMyRecurringBookings)
+			authed.POST("/pt-booking/recurring/:id/cancel", gc.CancelRecurringBooking)
 			authed.POST("/pt-funnel/touch", gc.TouchPTFunnel)
 			authed.POST("/pt-reviews", gc.CreatePTReview)
 
 			authed.GET("/pt-earnings/me", gc.MyPTEarnings)
+			authed.GET("/pt-earnings/today", gc.MyTodayActivity)
+			authed.POST("/pt-earnings/mark-seen", gc.MarkStudentsSeen)
+		}
+
+		if c.ContentShare != nil {
+			cs := c.ContentShare
+			authed.POST("/content-shares", cs.Share)
+			authed.GET("/content-shares", cs.ListRecipients)
+			authed.GET("/content-shares/students", cs.ListStudents)
+			authed.GET("/content-shares/mine", cs.ListMine)
+			authed.DELETE("/content-shares/:content_type/:content_id/:recipient_user_id", cs.Unshare)
 		}
 
 		premiumGroup := authed.Group("")

@@ -24,6 +24,7 @@ const (
 	forgotPasswordTemplateKey = "forgot_password"
 	forgotOTPTTL              = 15 * time.Minute
 	forgotResetTokenTTL       = 15 * time.Minute
+	signupOTPTTL              = 15 * time.Minute
 )
 
 var (
@@ -34,6 +35,7 @@ var (
 )
 
 type AuthService interface {
+	RequestSignupOTP(ctx context.Context, req *authv1.SignupRequestOTPReq) (*authv1.SignupRequestOTPRes, error)
 	Signup(ctx context.Context, req *authv1.SignupReq) (*authv1.LoginRes, error)
 	UserLogin(ctx context.Context, email, password string) (*authv1.LoginRes, error)
 	AdminLogin(ctx context.Context, email, password string) (*authv1.LoginRes, error)
@@ -82,10 +84,63 @@ func hasSuper(names []string) bool {
 	return false
 }
 
-func (s *authService) Signup(ctx context.Context, req *authv1.SignupReq) (*authv1.LoginRes, error) {
-	if _, err := s.userRepo.GetByEmail(ctx, req.Email); err == nil {
+func (s *authService) RequestSignupOTP(ctx context.Context, req *authv1.SignupRequestOTPReq) (*authv1.SignupRequestOTPRes, error) {
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+
+	if s.mailer == nil || !s.mailer.Enabled() {
+		return nil, ErrSMTPDisabled
+	}
+
+	if _, err := s.userRepo.GetByEmail(ctx, email); err == nil {
 		return nil, ErrEmailExists
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	code, err := generateOTP(6)
+	if err != nil {
+		return nil, err
+	}
+	_ = s.otpRepo.InvalidateOpen(ctx, email, entity.EmailOTPPurposeSignup)
+	row := &entity.EmailOTP{
+		Email:    email,
+		OTP:      code,
+		Purpose:  entity.EmailOTPPurposeSignup,
+		Used:     false,
+		ExpireAt: time.Now().UTC().Add(signupOTPTTL),
+	}
+	if err := s.otpRepo.Create(ctx, row); err != nil {
+		return nil, err
+	}
+
+	data := map[string]interface{}{
+		"UserName":   email,
+		"Email":      email,
+		"OTPCode":    code,
+		"VerifyCode": code,
+		"ExpireMins": int(signupOTPTTL.Minutes()),
+	}
+	if err := s.mailer.SendByKey(ctx, forgotPasswordTemplateKey, data, []string{email}); err != nil {
+		log.Printf("signup-otp mail failed for %s: %v", email, err)
+		return nil, fmt.Errorf("could not send signup verification email (check template key %q and SMTP): %w", forgotPasswordTemplateKey, err)
+	}
+
+	return &authv1.SignupRequestOTPRes{Status: "ok", Message: "Mã xác thực đã được gửi tới email của bạn."}, nil
+}
+
+func (s *authService) Signup(ctx context.Context, req *authv1.SignupReq) (*authv1.LoginRes, error) {
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if _, err := s.userRepo.GetByEmail(ctx, email); err == nil {
+		return nil, ErrEmailExists
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	otpRow, err := s.otpRepo.FindValid(ctx, email, entity.EmailOTPPurposeSignup, strings.TrimSpace(req.OTP))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrInvalidOTP
+		}
 		return nil, err
 	}
 
@@ -101,7 +156,7 @@ func (s *authService) Signup(ctx context.Context, req *authv1.SignupReq) (*authv
 	name := strings.TrimSpace(req.FirstName + " " + req.LastName)
 
 	u := &entity.User{
-		Email:        req.Email,
+		Email:        email,
 		Name:         name,
 		FirstName:    req.FirstName,
 		LastName:     req.LastName,
@@ -121,6 +176,8 @@ func (s *authService) Signup(ctx context.Context, req *authv1.SignupReq) (*authv
 	if err := s.userRepo.AppendRole(ctx, u, roleUser); err != nil {
 		return nil, err
 	}
+
+	_ = s.otpRepo.MarkUsed(ctx, otpRow.ID)
 
 	fresh, err := s.userRepo.GetByID(ctx, u.ID)
 	if err != nil {

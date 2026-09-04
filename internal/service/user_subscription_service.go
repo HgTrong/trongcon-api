@@ -32,6 +32,9 @@ type UserSubscriptionService interface {
 	SyncUserAccountType(ctx context.Context, userID uint) error
 	// GrantPremiumFromMembership unlocks Premium for the membership window (dinhuong.md).
 	GrantPremiumFromMembership(ctx context.Context, userID uint, endDate time.Time) error
+	// CancelStalePending cancels Premium subscription orders left "pending"
+	// (checkout opened but never paid) past olderThan.
+	CancelStalePending(ctx context.Context, olderThan time.Duration) (int, error)
 }
 
 type userSubscriptionService struct {
@@ -619,4 +622,13 @@ func toSubRes(s *entity.UserSubscription) subv1.SubscriptionRes {
 		IsTrial:                 s.IsTrial,
 		CreatedAt:               s.CreatedAt,
 	}
+}
+
+func (s *userSubscriptionService) CancelStalePending(ctx context.Context, olderThan time.Duration) (int, error) {
+	if olderThan <= 0 {
+		olderThan = 6 * time.Hour
+	}
+	before := time.Now().UTC().Add(-olderThan)
+	n, err := s.subRepo.CancelStalePending(ctx, before)
+	return int(n), err
 }

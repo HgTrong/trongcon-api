@@ -15,3 +15,4 @@ type EmailOTP struct {
 func (EmailOTP) TableName() string { return "email_otps" }
 
 const EmailOTPPurposeForgotPassword = "forgot_password"
+const EmailOTPPurposeSignup = "signup"

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -9,7 +10,14 @@ import (
 
 	gcv1 "trongcon-api/api/gym_commerce/v1"
 	"trongcon-api/internal/entity"
+
+	"gorm.io/gorm"
 )
+
+// errSlotTaken signals the transactional re-check inside BookSlot /
+// materializeOccurrence found a conflict that appeared after the initial
+// (non-transactional) availability check — i.e. someone else won the race.
+var errSlotTaken = errors.New("slot taken")
 
 func vnLocation() *time.Location {
 	loc, err := time.LoadLocation("Asia/Ho_Chi_Minh")
@@ -55,7 +63,7 @@ func (s *gymCommerceService) assertStudentNotBusy(ctx context.Context, studentUs
 			continue
 		}
 		if rangesOverlap(startsAt.UTC(), endsAt.UTC(), busy[i].StartsAt.UTC(), offerEnd(&busy[i], endsAt.Sub(startsAt))) {
-			return fmt.Errorf("you already have another session booked at this time")
+			return fmt.Errorf("bạn đã có một buổi tập khác vào thời gian này")
 		}
 	}
 	return nil
@@ -64,12 +72,12 @@ func (s *gymCommerceService) assertStudentNotBusy(ctx context.Context, studentUs
 func (s *gymCommerceService) assertCanPurchasePTPackage(ctx context.Context, userID uint, trainerProfileID uint) error {
 	t, err := s.trainerRepo.GetByID(ctx, trainerProfileID)
 	if err != nil {
-		return notFoundOr(err, "trainer not found")
+		return notFoundOr(err, "không tìm thấy huấn luyện viên")
 	}
 	// BookingPaused means the trainer stopped taking any new session bookings
 	// (e.g. on leave) — it applies to existing clients too, unlike AcceptingNewClients.
 	if t.BookingPaused {
-		return fmt.Errorf("trainer has paused booking activity")
+		return fmt.Errorf("huấn luyện viên đang tạm dừng nhận lịch")
 	}
 	existing, err := s.userPtPkgRepo.HasActivePackage(ctx, trainerProfileID, userID)
 	if err != nil {
@@ -79,7 +87,7 @@ func (s *gymCommerceService) assertCanPurchasePTPackage(ctx context.Context, use
 		return nil
 	}
 	if !t.AcceptingNewClients {
-		return fmt.Errorf("trainer is not accepting new clients")
+		return fmt.Errorf("huấn luyện viên hiện không nhận học viên mới")
 	}
 	if t.MaxActiveClients > 0 {
 		active, err := s.userPtPkgRepo.CountActiveClients(ctx, t.ID)
@@ -87,7 +95,7 @@ func (s *gymCommerceService) assertCanPurchasePTPackage(ctx context.Context, use
 			return err
 		}
 		if int(active) >= t.MaxActiveClients {
-			return fmt.Errorf("trainer has reached the maximum number of active clients")
+			return fmt.Errorf("huấn luyện viên đã đạt số lượng học viên tối đa")
 		}
 	}
 	return nil
@@ -127,7 +135,7 @@ func (s *gymCommerceService) UpdateMyBookingSettings(ctx context.Context, traine
 	if req.SessionDurationMin != nil {
 		d := *req.SessionDurationMin
 		if d < 15 || d > 240 {
-			return nil, fmt.Errorf("session_duration_min must be between 15 and 240")
+			return nil, fmt.Errorf("thời gian buổi tập phải trong khoảng 15 đến 240 phút")
 		}
 		t.SessionDurationMin = d
 	}
@@ -173,10 +181,10 @@ func (s *gymCommerceService) SetMyWorkingHours(ctx context.Context, trainerUserI
 	byDay := map[int][][2]int{}
 	for _, h := range req.Hours {
 		if h.Weekday < 0 || h.Weekday > 6 {
-			return nil, fmt.Errorf("invalid weekday")
+			return nil, fmt.Errorf("thứ trong tuần không hợp lệ")
 		}
 		if h.StartMinute < 0 || h.EndMinute > 24*60 || h.EndMinute <= h.StartMinute {
-			return nil, fmt.Errorf("invalid time range for weekday %d", h.Weekday)
+			return nil, fmt.Errorf("khung giờ không hợp lệ cho thứ %d trong tuần", h.Weekday)
 		}
 		rows = append(rows, entity.PTWorkingHours{
 			TrainerProfileID: t.ID,
@@ -198,7 +206,7 @@ func (s *gymCommerceService) SetMyWorkingHours(ctx context.Context, trainerUserI
 		})
 		for i := 1; i < len(ranges); i++ {
 			if ranges[i][0] < ranges[i-1][1] {
-				return nil, fmt.Errorf("overlapping time ranges on weekday %d", day)
+				return nil, fmt.Errorf("các khung giờ bị trùng nhau vào thứ %d trong tuần", day)
 			}
 		}
 	}
@@ -214,7 +222,7 @@ func (s *gymCommerceService) ListMyBlockedSlots(ctx context.Context, trainerUser
 		return nil, err
 	}
 	if from.IsZero() || to.IsZero() || !to.After(from) {
-		return nil, fmt.Errorf("from/to range required")
+		return nil, fmt.Errorf("cần chọn khoảng thời gian từ/đến")
 	}
 	rows, err := s.blockedRepo.ListInRange(ctx, t.ID, from.UTC(), to.UTC())
 	if err != nil {
@@ -237,7 +245,7 @@ func (s *gymCommerceService) BlockMySlot(ctx context.Context, trainerUserID uint
 	}
 	start, end := req.StartsAt.UTC(), req.EndsAt.UTC()
 	if !end.After(start) {
-		return nil, fmt.Errorf("ends_at must be after starts_at")
+		return nil, fmt.Errorf("giờ kết thúc phải sau giờ bắt đầu")
 	}
 	b := &entity.PTBlockedSlot{
 		TrainerProfileID: t.ID,
@@ -272,14 +280,14 @@ func (s *gymCommerceService) ListAvailableSlots(ctx context.Context, trainerProf
 
 func (s *gymCommerceService) generateAvailableSlots(ctx context.Context, trainerProfileID uint, from, to time.Time) ([]gcv1.AvailableSlotRes, error) {
 	if from.IsZero() || to.IsZero() || !to.After(from) {
-		return nil, fmt.Errorf("from/to range required")
+		return nil, fmt.Errorf("cần chọn khoảng thời gian từ/đến")
 	}
 	if to.Sub(from) > 14*24*time.Hour {
-		return nil, fmt.Errorf("range cannot exceed 14 days")
+		return nil, fmt.Errorf("khoảng thời gian không được vượt quá 14 ngày")
 	}
 	t, err := s.trainerRepo.GetByID(ctx, trainerProfileID)
 	if err != nil {
-		return nil, notFoundOr(err, "trainer not found")
+		return nil, notFoundOr(err, "không tìm thấy huấn luyện viên")
 	}
 	if t.BookingPaused {
 		return []gcv1.AvailableSlotRes{}, nil
@@ -354,30 +362,58 @@ func (s *gymCommerceService) generateAvailableSlots(ctx context.Context, trainer
 	return out, nil
 }
 
+// tryReserveSlot re-checks, inside an advisory-locked transaction, that no
+// busy offer or blocked window overlaps [startsAt,endsAt) for this trainer.
+// Callers must already hold the pg_advisory_xact_lock for trainerProfileID
+// on tx — this only does the read; it never locks or inserts on its own.
+func (s *gymCommerceService) tryReserveSlot(ctx context.Context, tx *gorm.DB, trainerProfileID uint, startsAt, endsAt time.Time, dur time.Duration) (bool, error) {
+	var busy []entity.PTSessionOffer
+	if err := tx.WithContext(ctx).
+		Where("trainer_profile_id = ? AND status IN ? AND starts_at < ?",
+			trainerProfileID,
+			[]string{entity.SessionOfferPending, entity.SessionOfferScheduled, entity.SessionOfferAwaitingConfirmation},
+			endsAt,
+		).Find(&busy).Error; err != nil {
+		return false, err
+	}
+	for i := range busy {
+		if rangesOverlap(startsAt, endsAt, busy[i].StartsAt.UTC(), offerEnd(&busy[i], dur)) {
+			return false, nil
+		}
+	}
+	var blockedCount int64
+	if err := tx.WithContext(ctx).Model(&entity.PTBlockedSlot{}).
+		Where("trainer_profile_id = ? AND starts_at < ? AND ends_at > ?", trainerProfileID, endsAt, startsAt).
+		Count(&blockedCount).Error; err != nil {
+		return false, err
+	}
+	return blockedCount == 0, nil
+}
+
 func (s *gymCommerceService) BookSlot(ctx context.Context, studentUserID uint, req *gcv1.BookSlotReq) (*gcv1.SessionOfferRes, error) {
 	up, err := s.userPtPkgRepo.GetByID(ctx, req.UserPTPackageID)
 	if err != nil {
-		return nil, notFoundOr(err, "user pt package not found")
+		return nil, notFoundOr(err, "không tìm thấy gói tập của người dùng")
 	}
 	if up.UserID != studentUserID {
-		return nil, fmt.Errorf("package does not belong to user")
+		return nil, fmt.Errorf("gói tập không thuộc về người dùng này")
 	}
 	if up.Status != entity.PTPkgStatusActive {
-		return nil, fmt.Errorf("package is not active")
+		return nil, fmt.Errorf("gói tập không còn hoạt động")
 	}
 	if err := s.assertSessionsAvailable(ctx, up); err != nil {
 		return nil, err
 	}
 	t, err := s.trainerRepo.GetByID(ctx, up.TrainerProfileID)
 	if err != nil {
-		return nil, notFoundOr(err, "trainer not found")
+		return nil, notFoundOr(err, "không tìm thấy huấn luyện viên")
 	}
 	if t.BookingPaused {
-		return nil, fmt.Errorf("trainer has paused booking activity")
+		return nil, fmt.Errorf("huấn luyện viên đang tạm dừng nhận lịch")
 	}
 	startsAt := req.StartsAt.UTC().Truncate(time.Minute)
 	if !startsAt.After(time.Now().UTC()) {
-		return nil, fmt.Errorf("slot must be in the future")
+		return nil, fmt.Errorf("giờ đặt phải ở trong tương lai")
 	}
 	dur := s.sessionDuration(t)
 	endsAt := startsAt.Add(dur)
@@ -394,12 +430,15 @@ func (s *gymCommerceService) BookSlot(ctx context.Context, studentUserID uint, r
 		}
 	}
 	if !ok {
-		return nil, fmt.Errorf("slot is no longer available")
+		return nil, fmt.Errorf("khung giờ này không còn trống")
 	}
 	if err := s.assertStudentNotBusy(ctx, studentUserID, 0, startsAt, endsAt); err != nil {
 		return nil, err
 	}
 
+	// The check above ran against a snapshot — re-verify inside an
+	// advisory-locked transaction right before inserting, so two students
+	// racing for the same slot can't both win (see tryReserveSlot).
 	now := time.Now().UTC()
 	offer := &entity.PTSessionOffer{
 		UserPTPackageID:  up.ID,
@@ -414,7 +453,23 @@ func (s *gymCommerceService) BookSlot(ctx context.Context, studentUserID uint, r
 		AcceptedAt:       &now,
 		BookedViaSlot:    true,
 	}
-	if err := s.offerRepo.Create(ctx, offer); err != nil {
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", int64(t.ID)).Error; err != nil {
+			return err
+		}
+		free, err := s.tryReserveSlot(ctx, tx, t.ID, startsAt, endsAt, dur)
+		if err != nil {
+			return err
+		}
+		if !free {
+			return errSlotTaken
+		}
+		return tx.Create(offer).Error
+	})
+	if err != nil {
+		if errors.Is(err, errSlotTaken) {
+			return nil, fmt.Errorf("rất tiếc, khung giờ này vừa có người đặt trước bạn — vui lòng chọn khung giờ khác")
+		}
 		return nil, err
 	}
 	offerID := offer.ID
@@ -463,6 +518,28 @@ func (s *gymCommerceService) RunExpiryHousekeeping(ctx context.Context) error {
 	return nil
 }
 
+// CancelStalePendingOrders cancels gym-membership and PT-package orders that were
+// created but never paid (still "pending") past olderThan — otherwise an abandoned
+// Stripe/VNPay checkout stays "pending" forever instead of freeing up for a retry.
+func (s *gymCommerceService) CancelStalePendingOrders(ctx context.Context, olderThan time.Duration) (int, error) {
+	if olderThan <= 0 {
+		olderThan = 6 * time.Hour
+	}
+	before := time.Now().UTC().Add(-olderThan)
+	total := 0
+	n, err := s.membRepo.CancelStalePending(ctx, before)
+	if err != nil {
+		return total, fmt.Errorf("cancel stale pending memberships: %w", err)
+	}
+	total += int(n)
+	n, err = s.userPtPkgRepo.CancelStalePending(ctx, before)
+	if err != nil {
+		return total, fmt.Errorf("cancel stale pending pt packages: %w", err)
+	}
+	total += int(n)
+	return total, nil
+}
+
 func (s *gymCommerceService) AutoConfirmExpiredSessionProofs(ctx context.Context, olderThan time.Duration, limit int) (int, error) {
 	if olderThan <= 0 {
 		olderThan = 24 * time.Hour
@@ -491,27 +568,27 @@ func (s *gymCommerceService) MarkSessionNoShow(ctx context.Context, requesterUse
 	}
 	t, err := s.trainerProfileForUser(ctx, requesterUserID)
 	if err != nil || t.ID != up.TrainerProfileID {
-		return nil, fmt.Errorf("only the package trainer can mark no-show")
+		return nil, fmt.Errorf("chỉ huấn luyện viên của gói tập này mới có thể đánh dấu vắng mặt")
 	}
 	if offer.Status != entity.SessionOfferScheduled {
-		return nil, fmt.Errorf("offer must be scheduled to mark no-show")
+		return nil, fmt.Errorf("buổi tập phải ở trạng thái đã lên lịch để đánh dấu vắng mặt")
 	}
 	if up.Status != entity.PTPkgStatusActive {
-		return nil, fmt.Errorf("package is not active")
+		return nil, fmt.Errorf("gói tập không còn hoạt động")
 	}
 	if up.SessionUsed >= up.SessionTotal {
-		return nil, fmt.Errorf("no sessions left")
+		return nil, fmt.Errorf("đã hết số buổi trong gói tập")
 	}
 	now := time.Now().UTC()
 	if now.Before(offer.StartsAt) {
-		return nil, fmt.Errorf("cannot mark no-show before the session's scheduled start time")
+		return nil, fmt.Errorf("không thể đánh dấu vắng mặt trước giờ hẹn của buổi tập")
 	}
 	nextIndex := up.SessionUsed + 1
 	note := strings.TrimSpace(offer.Note)
 	if note == "" {
-		note = "No-show"
+		note = "Vắng mặt"
 	} else {
-		note = "No-show — " + note
+		note = "Vắng mặt — " + note
 	}
 	logRow := &entity.PTSessionLog{
 		UserPTPackageID:  up.ID,
@@ -552,20 +629,20 @@ func (s *gymCommerceService) MarkSessionNoShow(ctx context.Context, requesterUse
 func (s *gymCommerceService) finalizeSessionConfirmation(ctx context.Context, offer *entity.PTSessionOffer, confirmedByUserID uint) (*gcv1.SessionOfferRes, error) {
 	up, err := s.userPtPkgRepo.GetByID(ctx, offer.UserPTPackageID)
 	if err != nil {
-		return nil, notFoundOr(err, "user pt package not found")
+		return nil, notFoundOr(err, "không tìm thấy gói tập của người dùng")
 	}
 	if offer.Status != entity.SessionOfferAwaitingConfirmation {
-		return nil, fmt.Errorf("offer is not awaiting confirmation")
+		return nil, fmt.Errorf("buổi tập không ở trạng thái chờ xác nhận")
 	}
 	proof := strings.TrimSpace(offer.ProofImageURL)
 	if proof == "" {
-		return nil, fmt.Errorf("missing proof image")
+		return nil, fmt.Errorf("thiếu ảnh minh chứng")
 	}
 	if up.Status != entity.PTPkgStatusActive {
-		return nil, fmt.Errorf("package is not active")
+		return nil, fmt.Errorf("gói tập không còn hoạt động")
 	}
 	if up.SessionUsed >= up.SessionTotal {
-		return nil, fmt.Errorf("no sessions left")
+		return nil, fmt.Errorf("đã hết số buổi trong gói tập")
 	}
 
 	now := time.Now().UTC()
@@ -622,7 +699,7 @@ func (s *gymCommerceService) finalizeSessionConfirmation(ctx context.Context, of
 func (s *gymCommerceService) AdminTrainerOpsOverview(ctx context.Context, trainerProfileID uint) (*gcv1.TrainerOpsOverviewRes, error) {
 	t, err := s.trainerRepo.GetByID(ctx, trainerProfileID)
 	if err != nil {
-		return nil, notFoundOr(err, "trainer not found")
+		return nil, notFoundOr(err, "không tìm thấy huấn luyện viên")
 	}
 	active, err := s.userPtPkgRepo.CountActiveClients(ctx, t.ID)
 	if err != nil {
@@ -684,7 +761,7 @@ func (s *gymCommerceService) AdminListTrainerClients(ctx context.Context, traine
 	case entity.PTPkgStatusActive, entity.PTPkgStatusExpired, entity.PTPkgStatusCanceled, entity.PTPkgStatusPending:
 		// ok
 	default:
-		return nil, fmt.Errorf("invalid status filter")
+		return nil, fmt.Errorf("bộ lọc trạng thái không hợp lệ")
 	}
 	rows, total, err := s.userPtPkgRepo.ListByTrainerProfileID(ctx, trainerProfileID, (page-1)*limit, limit, status)
 	if err != nil {
@@ -722,7 +799,7 @@ func (s *gymCommerceService) AdminListTrainerClients(ctx context.Context, traine
 
 func (s *gymCommerceService) AdminListTrainerBookings(ctx context.Context, trainerProfileID uint, from, to time.Time) (*gcv1.ListRes, error) {
 	if from.IsZero() || to.IsZero() || !to.After(from) {
-		return nil, fmt.Errorf("from/to range required")
+		return nil, fmt.Errorf("cần chọn khoảng thời gian từ/đến")
 	}
 	rows, err := s.offerRepo.ListByTrainerInRange(ctx, trainerProfileID, from.UTC(), to.UTC())
 	if err != nil {
@@ -761,6 +838,350 @@ func studentIDsFromOffers(rows []entity.PTSessionOffer) []uint {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+// ============================== Recurring (standing weekly) bookings ==============================
+
+// recurringHorizonDays is how far ahead a standing booking stays materialized
+// into real PTSessionOffer rows — comfortably beyond the 14-day lookahead
+// generateAvailableSlots ever queries, so other students never see a
+// recurring student's weekly slot as "available".
+const recurringHorizonDays = 21
+
+func rangesOverlapMinutes(aStart, aEnd, bStart, bEnd int) bool {
+	return aStart < bEnd && bStart < aEnd
+}
+
+var weekdayLabelsVN = [...]string{"Chủ nhật", "thứ 2", "thứ 3", "thứ 4", "thứ 5", "thứ 6", "thứ 7"}
+
+func weekdayLabelVN(weekday int) string {
+	if weekday < 0 || weekday > 6 {
+		return ""
+	}
+	return weekdayLabelsVN[weekday]
+}
+
+func toRecurringBookingRes(rb *entity.PTRecurringBooking) gcv1.RecurringBookingRes {
+	res := gcv1.RecurringBookingRes{
+		ID:               rb.ID,
+		UserPTPackageID:  rb.UserPTPackageID,
+		TrainerProfileID: rb.TrainerProfileID,
+		StudentUserID:    rb.StudentUserID,
+		Weekday:          rb.Weekday,
+		StartMinute:      rb.StartMinute,
+		EndMinute:        rb.EndMinute,
+		Status:           rb.Status,
+		CreatedAt:        rb.CreatedAt,
+		LastGeneratedFor: rb.LastGeneratedFor,
+	}
+	if rb.UserPTPackage.PTPackage.ID != 0 {
+		res.PackageTitle = rb.UserPTPackage.PTPackage.Title
+	}
+	if rb.UserPTPackage.User.ID != 0 {
+		res.StudentEmail = rb.UserPTPackage.User.Email
+		res.StudentName = displayNameFromUser(&rb.UserPTPackage.User)
+	}
+	return res
+}
+
+func (s *gymCommerceService) CreateRecurringBooking(ctx context.Context, studentUserID uint, req *gcv1.CreateRecurringBookingReq) (*gcv1.RecurringBookingRes, error) {
+	up, err := s.userPtPkgRepo.GetByID(ctx, req.UserPTPackageID)
+	if err != nil {
+		return nil, notFoundOr(err, "không tìm thấy gói tập của người dùng")
+	}
+	if up.UserID != studentUserID {
+		return nil, fmt.Errorf("gói tập không thuộc về người dùng này")
+	}
+	if up.Status != entity.PTPkgStatusActive {
+		return nil, fmt.Errorf("gói tập không còn hoạt động")
+	}
+	if err := s.assertSessionsAvailable(ctx, up); err != nil {
+		return nil, err
+	}
+	if req.Weekday < 0 || req.Weekday > 6 {
+		return nil, fmt.Errorf("thứ trong tuần không hợp lệ")
+	}
+	t, err := s.trainerRepo.GetByID(ctx, up.TrainerProfileID)
+	if err != nil {
+		return nil, notFoundOr(err, "không tìm thấy huấn luyện viên")
+	}
+	if t.BookingPaused {
+		return nil, fmt.Errorf("huấn luyện viên đang tạm dừng nhận lịch")
+	}
+	dur := s.sessionDuration(t)
+	startMinute := req.StartMinute
+	endMinute := startMinute + int(dur.Minutes())
+
+	hours, err := s.hoursRepo.ListByTrainer(ctx, t.ID)
+	if err != nil {
+		return nil, err
+	}
+	withinHours := false
+	for _, h := range hours {
+		if h.Weekday == req.Weekday && startMinute >= h.StartMinute && endMinute <= h.EndMinute {
+			withinHours = true
+			break
+		}
+	}
+	if !withinHours {
+		return nil, fmt.Errorf("khung giờ này nằm ngoài giờ nhận khách của huấn luyện viên")
+	}
+
+	existing, err := s.recurringRepo.ListActiveByTrainerAndWeekday(ctx, t.ID, req.Weekday)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range existing {
+		if rangesOverlapMinutes(startMinute, endMinute, e.StartMinute, e.EndMinute) {
+			return nil, fmt.Errorf("khung giờ cố định này đã có học viên khác đăng ký")
+		}
+	}
+
+	rb := &entity.PTRecurringBooking{
+		UserPTPackageID:  up.ID,
+		TrainerProfileID: t.ID,
+		StudentUserID:    studentUserID,
+		Weekday:          req.Weekday,
+		StartMinute:      startMinute,
+		EndMinute:        endMinute,
+		Status:           entity.RecurringBookingStatusActive,
+	}
+	if err := s.recurringRepo.Create(ctx, rb); err != nil {
+		return nil, err
+	}
+	rb.UserPTPackage = *up
+
+	queued, _ := s.materializeRecurringBooking(ctx, rb, recurringHorizonDays)
+	res := toRecurringBookingRes(rb)
+	res.OccurrencesQueued = queued
+
+	// Auto-activated by design (no approval gate — keeps the low-friction
+	// self-service booking model), but the trainer is emailed immediately so
+	// they can cancel within the first couple of days if it's unwanted.
+	trainerEmail, trainerName := s.userEmail(ctx, t.UserID)
+	studentName := displayNameFromUser(&up.User)
+	if studentName == "" {
+		studentName = up.User.Email
+	}
+	packageTitle := ""
+	if up.PTPackage.ID != 0 {
+		packageTitle = up.PTPackage.Title
+	}
+	s.notifyEmail(ctx, "pt_recurring_booking_created", map[string]interface{}{
+		"TrainerName":  trainerName,
+		"StudentName":  studentName,
+		"Weekday":      weekdayLabelVN(rb.Weekday),
+		"TimeRange":    fmt.Sprintf("%s–%s", minutesToHHMM(startMinute), minutesToHHMM(endMinute)),
+		"PackageTitle": packageTitle,
+	}, trainerEmail)
+
+	return &res, nil
+}
+
+func minutesToHHMM(m int) string {
+	return fmt.Sprintf("%02d:%02d", m/60, m%60)
+}
+
+func (s *gymCommerceService) ListMyRecurringBookingsAsStudent(ctx context.Context, studentUserID uint) (*gcv1.ListRes, error) {
+	rows, err := s.recurringRepo.ListByStudentUserID(ctx, studentUserID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]gcv1.RecurringBookingRes, 0, len(rows))
+	for i := range rows {
+		out = append(out, toRecurringBookingRes(&rows[i]))
+	}
+	return &gcv1.ListRes{Total: int64(len(out)), Data: out}, nil
+}
+
+func (s *gymCommerceService) ListMyRecurringBookingsAsTrainer(ctx context.Context, trainerUserID uint) (*gcv1.ListRes, error) {
+	t, err := s.trainerProfileForUser(ctx, trainerUserID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.recurringRepo.ListByTrainerProfileID(ctx, t.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]gcv1.RecurringBookingRes, 0, len(rows))
+	for i := range rows {
+		out = append(out, toRecurringBookingRes(&rows[i]))
+	}
+	return &gcv1.ListRes{Total: int64(len(out)), Data: out}, nil
+}
+
+func (s *gymCommerceService) CancelRecurringBooking(ctx context.Context, requesterUserID, id uint) error {
+	rb, err := s.recurringRepo.GetByID(ctx, id)
+	if err != nil {
+		return notFoundOr(err, "không tìm thấy lịch cố định")
+	}
+	isStudent := rb.StudentUserID == requesterUserID
+	isTrainer := false
+	if t, terr := s.trainerProfileForUser(ctx, requesterUserID); terr == nil && t.ID == rb.TrainerProfileID {
+		isTrainer = true
+	}
+	if !isStudent && !isTrainer {
+		return fmt.Errorf("bạn không có quyền hủy lịch cố định này")
+	}
+	rb.Status = entity.RecurringBookingStatusCanceled
+	if err := s.recurringRepo.Update(ctx, rb); err != nil {
+		return err
+	}
+	// Best-effort cleanup: cancel future, not-yet-completed materialized
+	// occurrences — never touch past/completed sessions.
+	now := time.Now().UTC()
+	offers, err := s.offerRepo.ListByTrainerInRange(ctx, rb.TrainerProfileID, now, now.AddDate(1, 0, 0))
+	if err != nil {
+		return nil
+	}
+	for i := range offers {
+		o := &offers[i]
+		if o.RecurringBookingID == nil || *o.RecurringBookingID != rb.ID {
+			continue
+		}
+		if o.Status != entity.SessionOfferScheduled && o.Status != entity.SessionOfferPending {
+			continue
+		}
+		o.Status = entity.SessionOfferCancelled
+		_ = s.offerRepo.Update(ctx, o)
+	}
+	return nil
+}
+
+// materializeRecurringBooking generates any missing dated occurrences between
+// the last-generated point and horizonDays from today, skipping (but still
+// advancing past) any date that turns out to conflict — a permanently
+// blocked week just leaves a gap rather than stalling all future weeks.
+func (s *gymCommerceService) materializeRecurringBooking(ctx context.Context, rb *entity.PTRecurringBooking, horizonDays int) (int, error) {
+	loc := vnLocation()
+	now := time.Now().In(loc)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	horizon := today.AddDate(0, 0, horizonDays)
+
+	start := today
+	if rb.LastGeneratedFor != nil {
+		afterLast := rb.LastGeneratedFor.In(loc).AddDate(0, 0, 1)
+		if afterLast.After(start) {
+			start = afterLast
+		}
+	}
+	for start.Weekday() != time.Weekday(rb.Weekday) {
+		start = start.AddDate(0, 0, 1)
+	}
+
+	created := 0
+	var furthest *time.Time
+	for d := start; !d.After(horizon); d = d.AddDate(0, 0, 7) {
+		ok, err := s.materializeOccurrence(ctx, rb, d)
+		if err != nil {
+			return created, err
+		}
+		if ok {
+			created++
+		}
+		dCopy := d
+		furthest = &dCopy
+	}
+	if furthest != nil {
+		rb.LastGeneratedFor = furthest
+		_ = s.recurringRepo.Update(ctx, rb)
+	}
+	return created, nil
+}
+
+// materializeOccurrence tries to create one dated PTSessionOffer for a
+// standing booking, guarded by the same advisory-lock transaction as BookSlot
+// so it can never collide with a concurrent one-off booking.
+func (s *gymCommerceService) materializeOccurrence(ctx context.Context, rb *entity.PTRecurringBooking, dateVN time.Time) (bool, error) {
+	loc := vnLocation()
+	dayStart := time.Date(dateVN.Year(), dateVN.Month(), dateVN.Day(), 0, 0, 0, 0, loc)
+	startsAt := dayStart.Add(time.Duration(rb.StartMinute) * time.Minute).UTC()
+	endsAt := dayStart.Add(time.Duration(rb.EndMinute) * time.Minute).UTC()
+	if !startsAt.After(time.Now().UTC()) {
+		return false, nil
+	}
+	up, err := s.userPtPkgRepo.GetByID(ctx, rb.UserPTPackageID)
+	if err != nil {
+		return false, err
+	}
+	if up.Status != entity.PTPkgStatusActive {
+		return false, nil
+	}
+	if err := s.assertSessionsAvailable(ctx, up); err != nil {
+		return false, nil
+	}
+	dur := endsAt.Sub(startsAt)
+	created := false
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", int64(rb.TrainerProfileID)).Error; err != nil {
+			return err
+		}
+		free, err := s.tryReserveSlot(ctx, tx, rb.TrainerProfileID, startsAt, endsAt, dur)
+		if err != nil {
+			return err
+		}
+		if !free {
+			return nil
+		}
+		now := time.Now().UTC()
+		recurringID := rb.ID
+		offer := &entity.PTSessionOffer{
+			UserPTPackageID:    up.ID,
+			TrainerProfileID:   rb.TrainerProfileID,
+			StudentUserID:      rb.StudentUserID,
+			StartsAt:           startsAt,
+			EndsAt:             &endsAt,
+			Note:               "Lịch cố định hàng tuần",
+			ProposedByUserID:   rb.StudentUserID,
+			Status:             entity.SessionOfferScheduled,
+			AcceptedByUserID:   rb.StudentUserID,
+			AcceptedAt:         &now,
+			BookedViaSlot:      true,
+			RecurringBookingID: &recurringID,
+		}
+		if err := tx.Create(offer).Error; err != nil {
+			return err
+		}
+		created = true
+		return nil
+	})
+	return created, err
+}
+
+// MaterializeRecurringBookings is invoked periodically (see main.go) to keep
+// every active standing booking generated recurringHorizonDays ahead, and to
+// auto-pause any whose package has expired or run out of session credits.
+func (s *gymCommerceService) MaterializeRecurringBookings(ctx context.Context, horizonDays int) (int, error) {
+	if horizonDays <= 0 {
+		horizonDays = recurringHorizonDays
+	}
+	rows, err := s.recurringRepo.ListActive(ctx)
+	if err != nil {
+		return 0, err
+	}
+	total := 0
+	for i := range rows {
+		rb := &rows[i]
+		up, err := s.userPtPkgRepo.GetByID(ctx, rb.UserPTPackageID)
+		if err != nil {
+			continue
+		}
+		if up.Status != entity.PTPkgStatusActive {
+			rb.Status = entity.RecurringBookingStatusPaused
+			_ = s.recurringRepo.Update(ctx, rb)
+			continue
+		}
+		n, err := s.materializeRecurringBooking(ctx, rb, horizonDays)
+		if err != nil {
+			continue
+		}
+		total += n
+		if err := s.assertSessionsAvailable(ctx, up); err != nil {
+			rb.Status = entity.RecurringBookingStatusPaused
+			_ = s.recurringRepo.Update(ctx, rb)
+		}
+	}
+	return total, nil
 }
 
 func (s *gymCommerceService) userDisplayMap(ctx context.Context, ids []uint) map[uint]userDisplay {

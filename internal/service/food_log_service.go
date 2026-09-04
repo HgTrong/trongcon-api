@@ -202,7 +202,7 @@ func buildNutritionHints(goals foodlogv1.NutritionGoalRes, totals, remaining foo
 		hints = append(hints, foodlogv1.NutritionHintRes{
 			Type:    "info",
 			Macro:   "general",
-			Message: "Start logging your first meal — consistency builds your streak.",
+			Message: "Hãy ghi bữa ăn đầu tiên hôm nay — duy trì đều đặn để xây streak.",
 		})
 		return hints
 	}
@@ -211,7 +211,7 @@ func buildNutritionHints(goals foodlogv1.NutritionGoalRes, totals, remaining foo
 		hints = append(hints, foodlogv1.NutritionHintRes{
 			Type:    "warning",
 			Macro:   "protein",
-			Message: fmt.Sprintf("You're short ~%dg protein today. Lean meat, eggs, Greek yogurt, or whey can close the gap.", int(remaining.ProteinG)),
+			Message: fmt.Sprintf("Bạn còn thiếu ~%dg đạm hôm nay. Thịt nạc, trứng, sữa chua Hy Lạp hoặc whey có thể bù phần thiếu.", int(remaining.ProteinG)),
 		})
 	}
 
@@ -219,7 +219,7 @@ func buildNutritionHints(goals foodlogv1.NutritionGoalRes, totals, remaining foo
 		hints = append(hints, foodlogv1.NutritionHintRes{
 			Type:    "info",
 			Macro:   "carbs",
-			Message: fmt.Sprintf("Still need ~%dg carbs — rice, oats, or fruit work well around training.", int(remaining.CarbG)),
+			Message: fmt.Sprintf("Vẫn còn thiếu ~%dg tinh bột — cơm, yến mạch hoặc trái cây phù hợp quanh buổi tập.", int(remaining.CarbG)),
 		})
 	}
 
@@ -227,7 +227,7 @@ func buildNutritionHints(goals foodlogv1.NutritionGoalRes, totals, remaining foo
 		hints = append(hints, foodlogv1.NutritionHintRes{
 			Type:    "info",
 			Macro:   "calories",
-			Message: fmt.Sprintf("%d kcal remaining — room for another solid meal.", int(remaining.Calories)),
+			Message: fmt.Sprintf("Còn %d kcal — vẫn còn chỗ cho một bữa ăn đầy đủ nữa.", int(remaining.Calories)),
 		})
 	}
 
@@ -235,7 +235,7 @@ func buildNutritionHints(goals foodlogv1.NutritionGoalRes, totals, remaining foo
 		hints = append(hints, foodlogv1.NutritionHintRes{
 			Type:    "warning",
 			Macro:   "calories",
-			Message: fmt.Sprintf("You're %d kcal over today's target. Lighter portions or lean protein may help balance the rest of the day.", int(-remaining.Calories)),
+			Message: fmt.Sprintf("Bạn đã vượt %d kcal so với mục tiêu hôm nay. Ăn khẩu phần nhẹ hơn hoặc chọn đạm nạc có thể giúp cân bằng phần còn lại trong ngày.", int(-remaining.Calories)),
 		})
 	}
 
@@ -243,7 +243,7 @@ func buildNutritionHints(goals foodlogv1.NutritionGoalRes, totals, remaining foo
 		hints = append(hints, foodlogv1.NutritionHintRes{
 			Type:    "warning",
 			Macro:   "fat",
-			Message: fmt.Sprintf("Fat is %dg over goal — consider leaner protein sources for remaining meals.", int(-remaining.FatG)),
+			Message: fmt.Sprintf("Chất béo đã vượt mục tiêu %dg — cân nhắc chọn nguồn đạm nạc hơn cho các bữa còn lại.", int(-remaining.FatG)),
 		})
 	}
 
@@ -251,7 +251,7 @@ func buildNutritionHints(goals foodlogv1.NutritionGoalRes, totals, remaining foo
 		hints = append(hints, foodlogv1.NutritionHintRes{
 			Type:    "success",
 			Macro:   "protein",
-			Message: "Protein goal hit — nice work. Use remaining calories for carbs and fats as planned.",
+			Message: "Đã đạt mục tiêu đạm — làm tốt lắm. Dùng lượng calo còn lại cho tinh bột và chất béo theo kế hoạch.",
 		})
 	}
 
@@ -259,7 +259,7 @@ func buildNutritionHints(goals foodlogv1.NutritionGoalRes, totals, remaining foo
 		hints = append(hints, foodlogv1.NutritionHintRes{
 			Type:    "success",
 			Macro:   "general",
-			Message: "On track with today's targets. Keep logging to build your streak.",
+			Message: "Đang bám sát mục tiêu hôm nay. Tiếp tục ghi nhật ký để xây streak.",
 		})
 	}
 

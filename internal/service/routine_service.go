@@ -17,7 +17,7 @@ var ErrRoutineNotFound = errors.New("routine not found")
 type RoutineService interface {
 	Create(ctx context.Context, req *routinev1.CreateReq) (*routinev1.CreateRes, error)
 	GetByID(ctx context.Context, id uint) (*routinev1.GetRes, error)
-	GetByIDPublic(ctx context.Context, id uint) (*routinev1.GetRes, error)
+	GetByIDPublic(ctx context.Context, id, viewerUserID uint) (*routinev1.GetRes, error)
 	Update(ctx context.Context, id uint, req *routinev1.UpdateReq) (*routinev1.UpdateRes, error)
 	Delete(ctx context.Context, id uint) error
 	List(ctx context.Context, req *routinev1.ListReq) (*routinev1.ListRes, error)
@@ -29,11 +29,12 @@ type routineService struct {
 	workoutRepo repository.WorkoutRepository
 	userRepo    repository.UserRepository
 	trainerRepo repository.TrainerProfileRepository
+	shareRepo   repository.ContentShareRepository
 	growth      PTGrowthTracker
 }
 
-func NewRoutineService(repo repository.RoutineRepository, workoutRepo repository.WorkoutRepository, userRepo repository.UserRepository, trainerRepo repository.TrainerProfileRepository, growth PTGrowthTracker) RoutineService {
-	return &routineService{repo: repo, workoutRepo: workoutRepo, userRepo: userRepo, trainerRepo: trainerRepo, growth: growth}
+func NewRoutineService(repo repository.RoutineRepository, workoutRepo repository.WorkoutRepository, userRepo repository.UserRepository, trainerRepo repository.TrainerProfileRepository, shareRepo repository.ContentShareRepository, growth PTGrowthTracker) RoutineService {
+	return &routineService{repo: repo, workoutRepo: workoutRepo, userRepo: userRepo, trainerRepo: trainerRepo, shareRepo: shareRepo, growth: growth}
 }
 
 func buildRoutineWorkouts(ctx context.Context, inputs []routinev1.RoutineItemInput, workoutRepo repository.WorkoutRepository) ([]entity.RoutineWorkout, error) {
@@ -159,7 +160,7 @@ func (s *routineService) GetByID(ctx context.Context, id uint) (*routinev1.GetRe
 	return &routinev1.GetRes{Routine: toRoutineRes(rt)}, nil
 }
 
-func (s *routineService) GetByIDPublic(ctx context.Context, id uint) (*routinev1.GetRes, error) {
+func (s *routineService) GetByIDPublic(ctx context.Context, id, viewerUserID uint) (*routinev1.GetRes, error) {
 	rt, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -168,7 +169,13 @@ func (s *routineService) GetByIDPublic(ctx context.Context, id uint) (*routinev1
 		return nil, err
 	}
 	if !rt.IsPublic {
-		return nil, ErrRoutineNotFound
+		shared := false
+		if viewerUserID > 0 && s.shareRepo != nil {
+			shared, _ = s.shareRepo.IsSharedWithUser(ctx, ContentTypeRoutine, rt.ID, viewerUserID)
+		}
+		if !shared {
+			return nil, ErrRoutineNotFound
+		}
 	}
 	if views, err := s.repo.IncrementViews(ctx, rt.ID); err == nil {
 		rt.Views = views

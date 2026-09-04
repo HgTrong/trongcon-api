@@ -82,3 +82,73 @@ func (r *ptBlockedSlotRepository) ListInRange(ctx context.Context, trainerProfil
 		Order("starts_at ASC").Find(&rows).Error
 	return rows, err
 }
+
+// —— PTRecurringBooking ——
+
+type PTRecurringBookingRepository interface {
+	Create(ctx context.Context, b *entity.PTRecurringBooking) error
+	Update(ctx context.Context, b *entity.PTRecurringBooking) error
+	GetByID(ctx context.Context, id uint) (*entity.PTRecurringBooking, error)
+	ListByTrainerProfileID(ctx context.Context, trainerProfileID uint) ([]entity.PTRecurringBooking, error)
+	ListByStudentUserID(ctx context.Context, studentUserID uint) ([]entity.PTRecurringBooking, error)
+	ListActiveByTrainerAndWeekday(ctx context.Context, trainerProfileID uint, weekday int) ([]entity.PTRecurringBooking, error)
+	// ListActive is the rolling-materialization cron's worklist — every
+	// standing reservation still in force, across all trainers.
+	ListActive(ctx context.Context) ([]entity.PTRecurringBooking, error)
+}
+
+type ptRecurringBookingRepository struct{ db *gorm.DB }
+
+func NewPTRecurringBookingRepository(db *gorm.DB) PTRecurringBookingRepository {
+	return &ptRecurringBookingRepository{db: db}
+}
+
+func ptRecurringBookingPreload(db *gorm.DB) *gorm.DB {
+	return db.Preload("UserPTPackage").Preload("UserPTPackage.User").Preload("UserPTPackage.PTPackage")
+}
+
+func (r *ptRecurringBookingRepository) Create(ctx context.Context, b *entity.PTRecurringBooking) error {
+	return r.db.WithContext(ctx).Create(b).Error
+}
+
+func (r *ptRecurringBookingRepository) Update(ctx context.Context, b *entity.PTRecurringBooking) error {
+	return r.db.WithContext(ctx).Save(b).Error
+}
+
+func (r *ptRecurringBookingRepository) GetByID(ctx context.Context, id uint) (*entity.PTRecurringBooking, error) {
+	var b entity.PTRecurringBooking
+	if err := ptRecurringBookingPreload(r.db.WithContext(ctx)).First(&b, id).Error; err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
+func (r *ptRecurringBookingRepository) ListByTrainerProfileID(ctx context.Context, trainerProfileID uint) ([]entity.PTRecurringBooking, error) {
+	var rows []entity.PTRecurringBooking
+	err := ptRecurringBookingPreload(r.db.WithContext(ctx)).
+		Where("trainer_profile_id = ? AND status <> ?", trainerProfileID, entity.RecurringBookingStatusCanceled).
+		Order("weekday ASC, start_minute ASC").Find(&rows).Error
+	return rows, err
+}
+
+func (r *ptRecurringBookingRepository) ListByStudentUserID(ctx context.Context, studentUserID uint) ([]entity.PTRecurringBooking, error) {
+	var rows []entity.PTRecurringBooking
+	err := ptRecurringBookingPreload(r.db.WithContext(ctx)).
+		Where("student_user_id = ? AND status <> ?", studentUserID, entity.RecurringBookingStatusCanceled).
+		Order("weekday ASC, start_minute ASC").Find(&rows).Error
+	return rows, err
+}
+
+func (r *ptRecurringBookingRepository) ListActiveByTrainerAndWeekday(ctx context.Context, trainerProfileID uint, weekday int) ([]entity.PTRecurringBooking, error) {
+	var rows []entity.PTRecurringBooking
+	err := r.db.WithContext(ctx).
+		Where("trainer_profile_id = ? AND weekday = ? AND status = ?", trainerProfileID, weekday, entity.RecurringBookingStatusActive).
+		Find(&rows).Error
+	return rows, err
+}
+
+func (r *ptRecurringBookingRepository) ListActive(ctx context.Context) ([]entity.PTRecurringBooking, error) {
+	var rows []entity.PTRecurringBooking
+	err := r.db.WithContext(ctx).Where("status = ?", entity.RecurringBookingStatusActive).Find(&rows).Error
+	return rows, err
+}

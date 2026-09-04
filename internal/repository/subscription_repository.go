@@ -91,6 +91,7 @@ type UserSubscriptionRepository interface {
 	ExpireEnded(ctx context.Context, now time.Time) error
 	HasActive(ctx context.Context, userID uint, now time.Time) (bool, error)
 	HasUsedTrial(ctx context.Context, userID uint) (bool, error)
+	CancelStalePending(ctx context.Context, before time.Time) (int64, error)
 }
 
 type userSubscriptionRepository struct{ db *gorm.DB }
@@ -195,6 +196,13 @@ func (r *userSubscriptionRepository) ExpireEnded(ctx context.Context, now time.T
 	return r.db.WithContext(ctx).Model(&entity.UserSubscription{}).
 		Where("status = ? AND end_date <= ?", entity.SubStatusActive, now).
 		Update("status", entity.SubStatusExpired).Error
+}
+
+func (r *userSubscriptionRepository) CancelStalePending(ctx context.Context, before time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&entity.UserSubscription{}).
+		Where("status = ? AND created_at < ?", entity.SubStatusPending, before).
+		Update("status", entity.SubStatusCanceled)
+	return res.RowsAffected, res.Error
 }
 
 func (r *userSubscriptionRepository) HasActive(ctx context.Context, userID uint, now time.Time) (bool, error) {

@@ -16,7 +16,7 @@ var ErrWorkoutNotFound = errors.New("workout not found")
 
 type WorkoutService interface {
 	Create(ctx context.Context, req *workoutv1.CreateReq) (*workoutv1.CreateRes, error)
-	GetByID(ctx context.Context, id uint) (*workoutv1.GetRes, error)
+	GetByID(ctx context.Context, id, viewerUserID uint) (*workoutv1.GetRes, error)
 	AdminGetByID(ctx context.Context, id uint) (*workoutv1.GetRes, error)
 	Update(ctx context.Context, id uint, req *workoutv1.UpdateReq) (*workoutv1.UpdateRes, error)
 	Delete(ctx context.Context, id uint) error
@@ -29,6 +29,7 @@ type workoutService struct {
 	exerciseRepo repository.ExerciseRepository
 	userRepo     repository.UserRepository
 	trainerRepo  repository.TrainerProfileRepository
+	shareRepo    repository.ContentShareRepository
 	growth       PTGrowthTracker
 }
 
@@ -37,9 +38,10 @@ func NewWorkoutService(
 	exerciseRepo repository.ExerciseRepository,
 	userRepo repository.UserRepository,
 	trainerRepo repository.TrainerProfileRepository,
+	shareRepo repository.ContentShareRepository,
 	growth PTGrowthTracker,
 ) WorkoutService {
-	return &workoutService{repo: repo, exerciseRepo: exerciseRepo, userRepo: userRepo, trainerRepo: trainerRepo, growth: growth}
+	return &workoutService{repo: repo, exerciseRepo: exerciseRepo, userRepo: userRepo, trainerRepo: trainerRepo, shareRepo: shareRepo, growth: growth}
 }
 
 func normalizeSets(v int) int {
@@ -151,7 +153,7 @@ func (s *workoutService) Create(ctx context.Context, req *workoutv1.CreateReq) (
 	return &workoutv1.CreateRes{Workout: s.withAuthor(ctx, fresh, toWorkoutAPIRes(fresh))}, nil
 }
 
-func (s *workoutService) GetByID(ctx context.Context, id uint) (*workoutv1.GetRes, error) {
+func (s *workoutService) GetByID(ctx context.Context, id, viewerUserID uint) (*workoutv1.GetRes, error) {
 	w, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -159,9 +161,16 @@ func (s *workoutService) GetByID(ctx context.Context, id uint) (*workoutv1.GetRe
 		}
 		return nil, err
 	}
-	// Public Get exposes catalog workouts (owner null) or published PT ones.
+	// Public Get exposes catalog workouts (owner null), published PT ones, or
+	// a private draft the PT has explicitly shared with this viewer.
 	if w.OwnerUserID != nil && !w.IsPublic {
-		return nil, ErrWorkoutNotFound
+		shared := false
+		if viewerUserID > 0 && s.shareRepo != nil {
+			shared, _ = s.shareRepo.IsSharedWithUser(ctx, ContentTypeWorkout, w.ID, viewerUserID)
+		}
+		if !shared {
+			return nil, ErrWorkoutNotFound
+		}
 	}
 	if views, err := s.repo.IncrementViews(ctx, w.ID); err == nil {
 		w.Views = views

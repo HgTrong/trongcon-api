@@ -15,6 +15,7 @@ const (
 	PaymentProviderVNPay  = "vnpay"
 	PaymentProviderTrial  = "trial"
 	PaymentProviderMembership = "membership" // complimentary Premium from gym pass
+	PaymentProviderCash   = "cash"           // staff-recorded walk-in payment at the front desk
 
 
 	PremiumTrialDays = 7

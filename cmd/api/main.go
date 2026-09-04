@@ -25,33 +25,34 @@ import (
 
 	"github.com/joho/godotenv"
 	"trongcon-api/internal/config"
+	aictl "trongcon-api/internal/controller/ai"
 	articlectl "trongcon-api/internal/controller/article"
 	authctl "trongcon-api/internal/controller/auth"
 	categoryctl "trongcon-api/internal/controller/category"
+	contentsharectl "trongcon-api/internal/controller/content_share"
+	emailtemplatectl "trongcon-api/internal/controller/email_template"
 	equipmentctl "trongcon-api/internal/controller/equipment"
 	exercisectl "trongcon-api/internal/controller/exercise"
+	faqctl "trongcon-api/internal/controller/faq"
 	foodctl "trongcon-api/internal/controller/food"
-	mealplanctl "trongcon-api/internal/controller/meal_plan"
-	routinectl "trongcon-api/internal/controller/routine"
-	workoutctl "trongcon-api/internal/controller/workout"
-	musclectl "trongcon-api/internal/controller/muscle"
-	toolsctl "trongcon-api/internal/controller/tools"
-	uploadctl "trongcon-api/internal/controller/upload"
-	savedworkoutctl "trongcon-api/internal/controller/saved_workout"
 	foodlogctl "trongcon-api/internal/controller/food_log"
-	mytrainctl "trongcon-api/internal/controller/my_train"
-	sessionctl "trongcon-api/internal/controller/workout_session"
-	enrollctl "trongcon-api/internal/controller/training_enrollment"
-	aictl "trongcon-api/internal/controller/ai"
 	gymctl "trongcon-api/internal/controller/gym"
 	gymcommercectl "trongcon-api/internal/controller/gym_commerce"
-	planctl "trongcon-api/internal/controller/subscription_plan"
-	subctl "trongcon-api/internal/controller/user_subscription"
-	userctl "trongcon-api/internal/controller/user"
-	statsctl "trongcon-api/internal/controller/stats"
+	mealplanctl "trongcon-api/internal/controller/meal_plan"
+	musclectl "trongcon-api/internal/controller/muscle"
+	mytrainctl "trongcon-api/internal/controller/my_train"
 	revenuectl "trongcon-api/internal/controller/revenue"
-	emailtemplatectl "trongcon-api/internal/controller/email_template"
-	faqctl "trongcon-api/internal/controller/faq"
+	routinectl "trongcon-api/internal/controller/routine"
+	savedworkoutctl "trongcon-api/internal/controller/saved_workout"
+	statsctl "trongcon-api/internal/controller/stats"
+	planctl "trongcon-api/internal/controller/subscription_plan"
+	toolsctl "trongcon-api/internal/controller/tools"
+	enrollctl "trongcon-api/internal/controller/training_enrollment"
+	uploadctl "trongcon-api/internal/controller/upload"
+	userctl "trongcon-api/internal/controller/user"
+	subctl "trongcon-api/internal/controller/user_subscription"
+	workoutctl "trongcon-api/internal/controller/workout"
+	sessionctl "trongcon-api/internal/controller/workout_session"
 	httpserver "trongcon-api/internal/http"
 	"trongcon-api/internal/mail"
 	oaiclient "trongcon-api/internal/openai"
@@ -114,9 +115,10 @@ func main() {
 	equipmentSvc := service.NewEquipmentService(equipmentRepo)
 	exerciseSvc := service.NewExerciseService(exerciseRepo, equipmentRepo, muscleRepo)
 	foodSvc := service.NewFoodService(foodRepo)
-	mealPlanSvc := service.NewMealPlanService(mealPlanRepo, foodRepo, userRepo, trainerRepo, ptGrowth)
-	routineSvc := service.NewRoutineService(routineRepo, workoutRepo, userRepo, trainerRepo, ptGrowth)
-	workoutSvc := service.NewWorkoutService(workoutRepo, exerciseRepo, userRepo, trainerRepo, ptGrowth)
+	contentShareRepo := repository.NewContentShareRepository(db.Connection)
+	mealPlanSvc := service.NewMealPlanService(mealPlanRepo, foodRepo, userRepo, trainerRepo, contentShareRepo, ptGrowth)
+	routineSvc := service.NewRoutineService(routineRepo, workoutRepo, userRepo, trainerRepo, contentShareRepo, ptGrowth)
+	workoutSvc := service.NewWorkoutService(workoutRepo, exerciseRepo, userRepo, trainerRepo, contentShareRepo, ptGrowth)
 	savedWorkoutSvc := service.NewSavedWorkoutService(savedWorkoutRepo, workoutRepo, ptGrowth)
 	macroSvc := service.NewMacroService()
 	foodLogSvc := service.NewFoodLogService(foodLogRepo, foodRepo, macroSvc)
@@ -157,19 +159,24 @@ func main() {
 	ptEarningRepo := repository.NewPTEarningRepository(db.Connection)
 	ptHoursRepo := repository.NewPTWorkingHoursRepository(db.Connection)
 	ptBlockedRepo := repository.NewPTBlockedSlotRepository(db.Connection)
+	ptRecurringRepo := repository.NewPTRecurringBookingRepository(db.Connection)
 	gymCommerceSvc := service.NewGymCommerceService(
 		gymMembershipPlanRepo, userGymMembershipRepo, groupClassRepo, classSessionRepo, classBookingRepo,
 		ptPackageRepo, userPTPackageRepo, ptSessionLogRepo,
 		repository.NewPTSessionOfferRepository(db.Connection),
-		ptChatRepo, ptHoursRepo, ptBlockedRepo,
+		ptChatRepo, ptHoursRepo, ptBlockedRepo, ptRecurringRepo,
 		ptStatRepo, ptAttrRepo, ptReviewRepo, ptGrowth,
 		revenueShareRepo, ptEarningRepo, trainerRepo, userRepo,
 		vnpaySvc, stripeSvc,
 		cfg.VNPay.MembershipReturnURL, cfg.VNPay.PackageReturnURL,
 		cfg.Stripe.MembershipSuccessURL, cfg.Stripe.MembershipCancelURL,
 		cfg.Stripe.PackageSuccessURL, cfg.Stripe.PackageCancelURL,
+		db.Connection,
 	)
 	gymCommerceSvc.ConfigureOps(mailerSvc, userSubSvc, cfg.JWTSecret, repository.NewGymCheckInRepository(db.Connection))
+
+	contentShareSvc := service.NewContentShareService(contentShareRepo, workoutRepo, routineRepo, mealPlanRepo, trainerRepo, userPTPackageRepo, userRepo, ptChatRepo)
+	contentShareController := contentsharectl.NewController(contentShareSvc)
 
 	// Auto-confirm PT session proofs after 1 day if the student forgets.
 	go func() {
@@ -210,6 +217,47 @@ func main() {
 		for {
 			if err := gymCommerceSvc.RunExpiryHousekeeping(context.Background()); err != nil {
 				log.Printf("membership/pt-package expiry housekeeping: %v", err)
+			}
+			<-ticker.C
+		}
+	}()
+
+	// Cancel gym-membership / PT-package / Premium subscription orders left "pending"
+	// (checkout opened but never paid) for 6+ hours — an abandoned Stripe/VNPay
+	// checkout would otherwise stay "pending" forever.
+	go func() {
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		for {
+			n, err := gymCommerceSvc.CancelStalePendingOrders(context.Background(), 6*time.Hour)
+			if err != nil {
+				log.Printf("stale pending order cleanup: %v", err)
+			} else if n > 0 {
+				log.Printf("stale pending order cleanup: cancelled %d order(s)", n)
+			}
+			if userSubSvc != nil {
+				if n, err := userSubSvc.CancelStalePending(context.Background(), 6*time.Hour); err != nil {
+					log.Printf("stale pending subscription cleanup: %v", err)
+				} else if n > 0 {
+					log.Printf("stale pending subscription cleanup: cancelled %d subscription(s)", n)
+				}
+			}
+			<-ticker.C
+		}
+	}()
+
+	// Keep every active standing (recurring) PT booking materialized ~3 weeks
+	// ahead into real session offers, and auto-pause any that ran out of
+	// session credits or whose package expired.
+	go func() {
+		ticker := time.NewTicker(6 * time.Hour)
+		defer ticker.Stop()
+		for {
+			n, err := gymCommerceSvc.MaterializeRecurringBookings(context.Background(), 0)
+			if err != nil {
+				log.Printf("recurring booking materialization: %v", err)
+			} else if n > 0 {
+				log.Printf("recurring booking materialization: created %d occurrence(s)", n)
 			}
 			<-ticker.C
 		}
@@ -266,6 +314,7 @@ func main() {
 		Enrollment:   enrollmentController,
 		AI:           aiController,
 		Subscription: userSubController,
+		ContentShare: contentShareController,
 		Premium:      userSubSvc,
 		Admin: adminrouter.Controllers{
 			User:             userController,

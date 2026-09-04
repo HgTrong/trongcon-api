@@ -47,6 +47,20 @@ func (c *Controller) UserLogin(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
+func (c *Controller) RequestSignupOTP(ctx *gin.Context) {
+	var req authv1.SignupRequestOTPReq
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: err.Error()})
+		return
+	}
+	res, err := c.svc.RequestSignupOTP(ctx.Request.Context(), &req)
+	if err != nil {
+		writeAuthErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, res)
+}
+
 func (c *Controller) Signup(ctx *gin.Context) {
 	var req authv1.SignupReq
 	if err := ctx.ShouldBindJSON(&req); err != nil {

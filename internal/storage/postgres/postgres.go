@@ -98,10 +98,12 @@ func autoMigrate(db *gorm.DB) error {
 		&entity.ClassBooking{},
 		&entity.PTPackage{},
 		&entity.UserPTPackage{},
+		&entity.ContentShare{},
 		&entity.RevenueShareSetting{},
 		&entity.PTEarning{},
 		&entity.PTSessionLog{},
 		&entity.PTSessionOffer{},
+		&entity.PTRecurringBooking{},
 		&entity.PTWorkingHours{},
 		&entity.PTBlockedSlot{},
 		&entity.PTPackageChatMessage{},
@@ -116,6 +118,9 @@ func autoMigrate(db *gorm.DB) error {
 		return err
 	}
 	if err := seedTransactionalEmailTemplates(db); err != nil {
+		return err
+	}
+	if err := upgradeDefaultEmailTemplates(db); err != nil {
 		return err
 	}
 	if err := migrateFoodLogMeals(db); err != nil {

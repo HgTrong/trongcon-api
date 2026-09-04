@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"trongcon-api/internal/entity"
@@ -17,7 +18,7 @@ type UserRepository interface {
 	ListByIDs(ctx context.Context, ids []uint) ([]entity.User, error)
 	Update(ctx context.Context, u *entity.User) error
 	Delete(ctx context.Context, id uint) error
-	List(ctx context.Context, offset, limit int, order string) ([]entity.User, int64, error)
+	List(ctx context.Context, offset, limit int, order, search string) ([]entity.User, int64, error)
 	UpdateLastLoginAt(ctx context.Context, id uint, t time.Time) error
 	AppendRole(ctx context.Context, u *entity.User, role *entity.Role) error
 }
@@ -73,16 +74,25 @@ func (r *userRepository) Delete(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).Delete(&entity.User{}, id).Error
 }
 
-func (r *userRepository) List(ctx context.Context, offset, limit int, order string) ([]entity.User, int64, error) {
+func (r *userRepository) List(ctx context.Context, offset, limit int, order, search string) ([]entity.User, int64, error) {
+	base := r.db.WithContext(ctx).Model(&entity.User{})
+	if s := strings.TrimSpace(search); s != "" {
+		like := "%" + s + "%"
+		base = base.Where(
+			"email ILIKE ? OR name ILIKE ? OR first_name ILIKE ? OR last_name ILIKE ?",
+			like, like, like, like,
+		)
+	}
+
 	var total int64
-	if err := r.db.WithContext(ctx).Model(&entity.User{}).Count(&total).Error; err != nil {
+	if err := base.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	var list []entity.User
 	if order == "" {
 		order = "id ASC"
 	}
-	if err := r.db.WithContext(ctx).Preload("Roles").Order(order).Offset(offset).Limit(limit).Find(&list).Error; err != nil {
+	if err := base.Preload("Roles").Order(order).Offset(offset).Limit(limit).Find(&list).Error; err != nil {
 		return nil, 0, err
 	}
 	return list, total, nil

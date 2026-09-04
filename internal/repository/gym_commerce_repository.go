@@ -89,8 +89,11 @@ type UserGymMembershipRepository interface {
 	GetByStripeCheckoutSessionID(ctx context.Context, sessionID string) (*entity.UserGymMembership, error)
 	GetActiveByUserID(ctx context.Context, userID uint, now time.Time) (*entity.UserGymMembership, error)
 	ListByUserID(ctx context.Context, userID uint, limit int) ([]entity.UserGymMembership, error)
-	ListAdmin(ctx context.Context, offset, limit int, status string, userID uint) ([]entity.UserGymMembership, int64, error)
+	ListAdmin(ctx context.Context, offset, limit int, status string, userID uint, from, to *time.Time) ([]entity.UserGymMembership, int64, error)
 	ExpireEnded(ctx context.Context, now time.Time) error
+	// CancelStalePending cancels "pending" (never paid) orders created before the cutoff,
+	// so an abandoned checkout doesn't stay pending forever.
+	CancelStalePending(ctx context.Context, before time.Time) (int64, error)
 }
 
 type userGymMembershipRepository struct{ db *gorm.DB }
@@ -219,13 +222,19 @@ func (r *userGymMembershipRepository) ListByUserID(ctx context.Context, userID u
 	return rows, err
 }
 
-func (r *userGymMembershipRepository) ListAdmin(ctx context.Context, offset, limit int, status string, userID uint) ([]entity.UserGymMembership, int64, error) {
+func (r *userGymMembershipRepository) ListAdmin(ctx context.Context, offset, limit int, status string, userID uint, from, to *time.Time) ([]entity.UserGymMembership, int64, error) {
 	tx := r.db.WithContext(ctx).Model(&entity.UserGymMembership{})
 	if status != "" {
 		tx = tx.Where("status = ?", status)
 	}
 	if userID > 0 {
 		tx = tx.Where("user_id = ?", userID)
+	}
+	if from != nil {
+		tx = tx.Where("created_at >= ?", *from)
+	}
+	if to != nil {
+		tx = tx.Where("created_at < ?", *to)
 	}
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
@@ -241,6 +250,13 @@ func (r *userGymMembershipRepository) ExpireEnded(ctx context.Context, now time.
 	return r.db.WithContext(ctx).Model(&entity.UserGymMembership{}).
 		Where("status = ? AND end_date <= ?", entity.GymMemStatusActive, now).
 		Update("status", entity.GymMemStatusExpired).Error
+}
+
+func (r *userGymMembershipRepository) CancelStalePending(ctx context.Context, before time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&entity.UserGymMembership{}).
+		Where("status = ? AND created_at < ?", entity.GymMemStatusPending, before).
+		Update("status", entity.GymMemStatusCanceled)
+	return res.RowsAffected, res.Error
 }
 
 // —— GroupClass ——
@@ -532,11 +548,12 @@ type UserPTPackageRepository interface {
 	GetByStripeCheckoutSessionID(ctx context.Context, sessionID string) (*entity.UserPTPackage, error)
 	ListByUserID(ctx context.Context, userID uint, limit int) ([]entity.UserPTPackage, error)
 	ListByTrainerProfileID(ctx context.Context, trainerProfileID uint, offset, limit int, status string) ([]entity.UserPTPackage, int64, error)
-	ListAdmin(ctx context.Context, offset, limit int, status string, trainerProfileID, userID uint) ([]entity.UserPTPackage, int64, error)
+	ListAdmin(ctx context.Context, offset, limit int, status string, trainerProfileID, userID uint, from, to *time.Time) ([]entity.UserPTPackage, int64, error)
 	CountActiveClients(ctx context.Context, trainerProfileID uint) (int, error)
 	HasActivePackage(ctx context.Context, trainerProfileID, userID uint) (bool, error)
 	CountClientsEver(ctx context.Context, trainerProfileID uint) (int, error)
 	ExpireEnded(ctx context.Context, now time.Time) error
+	CancelStalePending(ctx context.Context, before time.Time) (int64, error)
 }
 
 type userPTPackageRepository struct{ db *gorm.DB }
@@ -654,7 +671,7 @@ func (r *userPTPackageRepository) CountClientsEver(ctx context.Context, trainerP
 	return int(n), err
 }
 
-func (r *userPTPackageRepository) ListAdmin(ctx context.Context, offset, limit int, status string, trainerProfileID, userID uint) ([]entity.UserPTPackage, int64, error) {
+func (r *userPTPackageRepository) ListAdmin(ctx context.Context, offset, limit int, status string, trainerProfileID, userID uint, from, to *time.Time) ([]entity.UserPTPackage, int64, error) {
 	base := r.db.WithContext(ctx).Model(&entity.UserPTPackage{})
 	if status != "" {
 		base = base.Where("status = ?", status)
@@ -664,6 +681,12 @@ func (r *userPTPackageRepository) ListAdmin(ctx context.Context, offset, limit i
 	}
 	if userID > 0 {
 		base = base.Where("user_id = ?", userID)
+	}
+	if from != nil {
+		base = base.Where("created_at >= ?", *from)
+	}
+	if to != nil {
+		base = base.Where("created_at < ?", *to)
 	}
 	var total int64
 	if err := base.Count(&total).Error; err != nil {
@@ -679,6 +702,12 @@ func (r *userPTPackageRepository) ListAdmin(ctx context.Context, offset, limit i
 	if userID > 0 {
 		q = q.Where("user_id = ?", userID)
 	}
+	if from != nil {
+		q = q.Where("created_at >= ?", *from)
+	}
+	if to != nil {
+		q = q.Where("created_at < ?", *to)
+	}
 	var rows []entity.UserPTPackage
 	err := userPTPackagePreload(q).Order("id DESC").Offset(offset).Limit(limit).Find(&rows).Error
 	return rows, total, err
@@ -688,6 +717,13 @@ func (r *userPTPackageRepository) ExpireEnded(ctx context.Context, now time.Time
 	return r.db.WithContext(ctx).Model(&entity.UserPTPackage{}).
 		Where("status = ? AND expires_at <= ?", entity.PTPkgStatusActive, now).
 		Update("status", entity.PTPkgStatusExpired).Error
+}
+
+func (r *userPTPackageRepository) CancelStalePending(ctx context.Context, before time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&entity.UserPTPackage{}).
+		Where("status = ? AND created_at < ?", entity.PTPkgStatusPending, before).
+		Update("status", entity.PTPkgStatusCanceled)
+	return res.RowsAffected, res.Error
 }
 
 // —— PTSessionLog ——
@@ -737,6 +773,9 @@ type PTSessionOfferRepository interface {
 	ListByTrainerInRange(ctx context.Context, trainerProfileID uint, from, to time.Time) ([]entity.PTSessionOffer, error)
 	CountStatusesByTrainer(ctx context.Context, trainerProfileID uint) (map[string]int64, error)
 	ListAwaitingConfirmationOlderThan(ctx context.Context, before time.Time, limit int) ([]entity.PTSessionOffer, error)
+	// ListAwaitingConfirmation is the admin review queue — every offer with proof
+	// submitted but not yet confirmed by the student (or auto-confirmed by cron).
+	ListAwaitingConfirmation(ctx context.Context, offset, limit int) ([]entity.PTSessionOffer, int64, error)
 	// ExpireStalePending cancels "pending" offers proposed before `before` and never
 	// responded to — without this, a forgotten proposal keeps occupying the trainer's
 	// slot / the package's session-credit forever.
@@ -888,6 +927,22 @@ func (r *ptSessionOfferRepository) ListAwaitingConfirmationOlderThan(ctx context
 	return rows, err
 }
 
+func (r *ptSessionOfferRepository) ListAwaitingConfirmation(ctx context.Context, offset, limit int) ([]entity.PTSessionOffer, int64, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	tx := r.db.WithContext(ctx).Model(&entity.PTSessionOffer{}).
+		Where("status = ?", entity.SessionOfferAwaitingConfirmation)
+
+	var total int64
+	if err := tx.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []entity.PTSessionOffer
+	err := tx.Order("proof_submitted_at ASC").Offset(offset).Limit(limit).Find(&rows).Error
+	return rows, total, err
+}
+
 func (r *ptSessionOfferRepository) ExpireStalePending(ctx context.Context, before time.Time) (int64, error) {
 	res := r.db.WithContext(ctx).Model(&entity.PTSessionOffer{}).
 		Where("status = ? AND created_at <= ?", entity.SessionOfferPending, before).
@@ -932,13 +987,17 @@ func (r *revenueShareSettingRepository) Update(ctx context.Context, s *entity.Re
 
 type PTEarningRepository interface {
 	Create(ctx context.Context, e *entity.PTEarning) error
-	ListAdmin(ctx context.Context, offset, limit int, trainerProfileID uint) ([]entity.PTEarning, int64, error)
+	ListAdmin(ctx context.Context, offset, limit int, trainerProfileID uint, from, to *time.Time) ([]entity.PTEarning, int64, error)
 	SumPTAmount(ctx context.Context, trainerProfileID uint) (float64, error)
+	SumPTAmountRange(ctx context.Context, trainerProfileID uint, from, to *time.Time) (float64, error)
 	GetByID(ctx context.Context, id uint) (*entity.PTEarning, error)
 	// MarkPaidOut lets admin/CSKH record that a PT has been paid out for this
 	// earning row (e.g. weekly/monthly payroll run) — the ledger otherwise has
 	// no notion of paid vs. still-owed.
 	MarkPaidOut(ctx context.Context, id uint, paid bool) error
+	GetBySessionOfferID(ctx context.Context, sessionOfferID uint) (*entity.PTEarning, error)
+	// Delete removes an earning row — only safe before it has been paid out.
+	Delete(ctx context.Context, id uint) error
 }
 
 type ptEarningRepository struct{ db *gorm.DB }
@@ -951,10 +1010,16 @@ func (r *ptEarningRepository) Create(ctx context.Context, e *entity.PTEarning) e
 	return r.db.WithContext(ctx).Create(e).Error
 }
 
-func (r *ptEarningRepository) ListAdmin(ctx context.Context, offset, limit int, trainerProfileID uint) ([]entity.PTEarning, int64, error) {
+func (r *ptEarningRepository) ListAdmin(ctx context.Context, offset, limit int, trainerProfileID uint, from, to *time.Time) ([]entity.PTEarning, int64, error) {
 	tx := r.db.WithContext(ctx).Model(&entity.PTEarning{})
 	if trainerProfileID > 0 {
 		tx = tx.Where("trainer_profile_id = ?", trainerProfileID)
+	}
+	if from != nil {
+		tx = tx.Where("created_at >= ?", *from)
+	}
+	if to != nil {
+		tx = tx.Where("created_at < ?", *to)
 	}
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
@@ -981,10 +1046,44 @@ func (r *ptEarningRepository) MarkPaidOut(ctx context.Context, id uint, paid boo
 	return r.db.WithContext(ctx).Model(&entity.PTEarning{}).Where("id = ?", id).Update("paid_out", paid).Error
 }
 
+func (r *ptEarningRepository) GetBySessionOfferID(ctx context.Context, sessionOfferID uint) (*entity.PTEarning, error) {
+	var e entity.PTEarning
+	if err := r.db.WithContext(ctx).Where("session_offer_id = ?", sessionOfferID).First(&e).Error; err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+func (r *ptEarningRepository) Delete(ctx context.Context, id uint) error {
+	return r.db.WithContext(ctx).Delete(&entity.PTEarning{}, id).Error
+}
+
 func (r *ptEarningRepository) SumPTAmount(ctx context.Context, trainerProfileID uint) (float64, error) {
 	tx := r.db.WithContext(ctx).Model(&entity.PTEarning{})
 	if trainerProfileID > 0 {
 		tx = tx.Where("trainer_profile_id = ?", trainerProfileID)
+	}
+	var sum float64
+	row := tx.Select("COALESCE(SUM(pt_amount), 0)").Row()
+	if row == nil {
+		return 0, nil
+	}
+	if err := row.Scan(&sum); err != nil {
+		return 0, err
+	}
+	return sum, nil
+}
+
+func (r *ptEarningRepository) SumPTAmountRange(ctx context.Context, trainerProfileID uint, from, to *time.Time) (float64, error) {
+	tx := r.db.WithContext(ctx).Model(&entity.PTEarning{})
+	if trainerProfileID > 0 {
+		tx = tx.Where("trainer_profile_id = ?", trainerProfileID)
+	}
+	if from != nil {
+		tx = tx.Where("created_at >= ?", *from)
+	}
+	if to != nil {
+		tx = tx.Where("created_at < ?", *to)
 	}
 	var sum float64
 	row := tx.Select("COALESCE(SUM(pt_amount), 0)").Row()

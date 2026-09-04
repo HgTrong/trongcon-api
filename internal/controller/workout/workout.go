@@ -7,6 +7,7 @@ import (
 
 	"trongcon-api/api/swagger"
 	workoutv1 "trongcon-api/api/workout/v1"
+	"trongcon-api/internal/http/middleware"
 	"trongcon-api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -68,7 +69,8 @@ func (c *Controller) GetByID(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, swagger.ErrBody{Error: "invalid id"})
 		return
 	}
-	res, err := c.svc.GetByID(ctx.Request.Context(), id)
+	viewerUserID, _ := middleware.GetUserID(ctx)
+	res, err := c.svc.GetByID(ctx.Request.Context(), id, viewerUserID)
 	if err != nil {
 		writeErr(ctx, err)
 		return

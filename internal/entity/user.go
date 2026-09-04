@@ -13,6 +13,7 @@ type User struct {
 	Name         string `json:"name" gorm:"type:varchar(255)"`
 	FirstName    string `json:"first_name" gorm:"type:varchar(128)"`
 	LastName     string `json:"last_name" gorm:"type:varchar(128)"`
+	DateOfBirth  *time.Time `json:"date_of_birth"`
 	Gender          string `json:"gender" gorm:"type:varchar(32)"`
 	Language        string `json:"language" gorm:"type:varchar(16);default:'en'"`
 	ProfilePicture  string `json:"profile_picture" gorm:"type:text"`

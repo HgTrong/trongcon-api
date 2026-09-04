@@ -15,6 +15,7 @@ import (
 	faqctl "trongcon-api/internal/controller/faq"
 	toolsctl "trongcon-api/internal/controller/tools"
 	workoutctl "trongcon-api/internal/controller/workout"
+	"trongcon-api/internal/http/middleware"
 	"trongcon-api/internal/service"
 	publicarticle "trongcon-api/internal/router/public/article"
 	publicbranch "trongcon-api/internal/router/public/branch"
@@ -55,16 +56,20 @@ type Controllers struct {
 func Register(r *gin.RouterGroup, c Controllers, jwtSecret string, premium service.UserSubscriptionService) {
 	// Catalog browse/detail is free (discovery for PTs + gym funnel).
 	// Premium gates stay on member tools: sessions, food log, AI, clone/enroll, etc.
-	_ = jwtSecret
 	_ = premium
+
+	// Optional-auth on detail routes: anonymous viewers still get public
+	// content; a logged-in viewer additionally unlocks a draft their PT
+	// privately shared with them (see ContentShare).
+	optionalAuth := middleware.OptionalAuth(jwtSecret)
 
 	publicexercise.Register(r, c.Exercise)
 	publicmuscle.Register(r, c.Muscle)
 	publicequipment.Register(r, c.Equipment)
-	publicworkout.Register(r, c.Workout)
-	publicroutine.Register(r, c.Routine)
+	publicworkout.Register(r, c.Workout, optionalAuth)
+	publicroutine.Register(r, c.Routine, optionalAuth)
 	publicfood.Register(r, c.Food)
-	publicmealplan.Register(r, c.MealPlan)
+	publicmealplan.Register(r, c.MealPlan, optionalAuth)
 	publicarticle.Register(r, c.Article)
 	publiccategory.Register(r, c.Category)
 	publictools.Register(r, c.Tools)

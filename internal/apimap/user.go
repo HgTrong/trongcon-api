@@ -20,6 +20,7 @@ func UserToRes(u *entity.User) userv1.UserRes {
 		Name:        u.Name,
 		FirstName:   u.FirstName,
 		LastName:    u.LastName,
+		DateOfBirth: u.DateOfBirth,
 		Gender:      u.Gender,
 		Language:    u.Language,
 		MemberSince: u.CreatedAt,

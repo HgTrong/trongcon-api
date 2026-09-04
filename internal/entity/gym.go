@@ -1,5 +1,7 @@
 package entity
 
+import "time"
+
 // GymBranch is a physical club location shown on marketing + PT assignment.
 type GymBranch struct {
 	BaseEntity
@@ -40,4 +42,8 @@ type TrainerProfile struct {
 	AcceptingNewClients bool       `json:"accepting_new_clients" gorm:"not null;default:true;index"`
 	BookingPaused       bool       `json:"booking_paused" gorm:"not null;default:false;index"`
 	MaxActiveClients    int        `json:"max_active_clients" gorm:"not null;default:10"`
+	// StudentsSeenAt tracks when the trainer last acknowledged their student
+	// list — new UserPTPackage rows created after this show as "unseen" on
+	// the PT dashboard until they check in again.
+	StudentsSeenAt *time.Time `json:"students_seen_at,omitempty"`
 }

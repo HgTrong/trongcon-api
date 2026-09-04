@@ -21,31 +21,36 @@ const (
 
 	ChatMsgTypeText         = "text"
 	ChatMsgTypeSessionOffer = "session_offer"
+	ChatMsgTypeContentShare = "content_share"
 
-	SessionOfferPending               = "pending"
-	SessionOfferScheduled             = "scheduled"
-	SessionOfferAwaitingConfirmation  = "awaiting_confirmation"
-	SessionOfferDeclined              = "declined"
-	SessionOfferCancelled             = "cancelled"
-	SessionOfferCompleted             = "completed"
-	SessionOfferNoShow                = "no_show"
+	SessionOfferPending              = "pending"
+	SessionOfferScheduled            = "scheduled"
+	SessionOfferAwaitingConfirmation = "awaiting_confirmation"
+	SessionOfferDeclined             = "declined"
+	SessionOfferCancelled            = "cancelled"
+	SessionOfferCompleted            = "completed"
+	SessionOfferNoShow               = "no_show"
+
+	RecurringBookingStatusActive   = "active"
+	RecurringBookingStatusPaused   = "paused"
+	RecurringBookingStatusCanceled = "canceled"
 )
 
 // GymMembershipPlan is a club pass (floor + group classes).
 type GymMembershipPlan struct {
 	BaseEntity
-	Code           string  `json:"code" gorm:"type:varchar(64);uniqueIndex"`
-	Name           string  `json:"name" gorm:"type:varchar(255);not null"`
-	Description    string  `json:"description" gorm:"type:text"`
-	Price          float64 `json:"price" gorm:"type:decimal(12,2);not null;default:0"`
-	Currency       string  `json:"currency" gorm:"type:varchar(10);not null;default:'VND'"`
-	DurationMonths int     `json:"duration_months" gorm:"not null;default:1"`
-	BranchID       *uint   `json:"branch_id" gorm:"index"` // nil = all branches
-	Branch         *GymBranch `json:"branch,omitempty" gorm:"foreignKey:BranchID"`
-	IncludesClasses bool   `json:"includes_classes" gorm:"not null;default:true"`
-	IsHighlighted  bool    `json:"is_highlighted" gorm:"not null;default:false;index"` // show on marketing home
-	IsActive       bool    `json:"is_active" gorm:"not null;default:true;index"`
-	SortOrder      int     `json:"sort_order" gorm:"not null;default:0"`
+	Code            string     `json:"code" gorm:"type:varchar(64);uniqueIndex"`
+	Name            string     `json:"name" gorm:"type:varchar(255);not null"`
+	Description     string     `json:"description" gorm:"type:text"`
+	Price           float64    `json:"price" gorm:"type:decimal(12,2);not null;default:0"`
+	Currency        string     `json:"currency" gorm:"type:varchar(10);not null;default:'VND'"`
+	DurationMonths  int        `json:"duration_months" gorm:"not null;default:1"`
+	BranchID        *uint      `json:"branch_id" gorm:"index"` // nil = all branches
+	Branch          *GymBranch `json:"branch,omitempty" gorm:"foreignKey:BranchID"`
+	IncludesClasses bool       `json:"includes_classes" gorm:"not null;default:true"`
+	IsHighlighted   bool       `json:"is_highlighted" gorm:"not null;default:false;index"` // show on marketing home
+	IsActive        bool       `json:"is_active" gorm:"not null;default:true;index"`
+	SortOrder       int        `json:"sort_order" gorm:"not null;default:0"`
 }
 
 func (GymMembershipPlan) TableName() string { return "gym_membership_plans" }
@@ -53,22 +58,22 @@ func (GymMembershipPlan) TableName() string { return "gym_membership_plans" }
 // UserGymMembership is a purchased club pass window.
 type UserGymMembership struct {
 	BaseEntity
-	UserID             uint      `json:"user_id" gorm:"not null;index"`
-	User               User      `json:"-" gorm:"foreignKey:UserID"`
-	GymMembershipPlanID uint     `json:"gym_membership_plan_id" gorm:"not null;index"`
-	GymMembershipPlan  GymMembershipPlan `json:"plan,omitempty" gorm:"foreignKey:GymMembershipPlanID"`
-	BranchID           *uint     `json:"branch_id" gorm:"index"`
-	StartDate          time.Time `json:"start_date"`
-	EndDate            time.Time `json:"end_date"`
-	DurationMonths     int       `json:"duration_months"`
-	Price              float64   `json:"price" gorm:"type:decimal(12,2);not null;default:0"`
-	Currency           string    `json:"currency" gorm:"type:varchar(10);default:'VND'"`
-	Status             string    `json:"status" gorm:"type:varchar(20);not null;default:'pending';index"`
-	PaymentProvider    string    `json:"payment_provider" gorm:"type:varchar(20);not null;default:'vnpay'"`
-	VnpTxnRef          string    `json:"vnp_txn_ref" gorm:"type:varchar(100);index"`
-	VnpTransactionNo   string    `json:"vnp_transaction_no" gorm:"type:varchar(100);index"`
-	StripeCheckoutSessionID string `json:"stripe_checkout_session_id" gorm:"type:varchar(255);index"`
-	StripePaymentIntentID   string `json:"stripe_payment_intent_id" gorm:"type:varchar(255);index"`
+	UserID                  uint              `json:"user_id" gorm:"not null;index"`
+	User                    User              `json:"-" gorm:"foreignKey:UserID"`
+	GymMembershipPlanID     uint              `json:"gym_membership_plan_id" gorm:"not null;index"`
+	GymMembershipPlan       GymMembershipPlan `json:"plan,omitempty" gorm:"foreignKey:GymMembershipPlanID"`
+	BranchID                *uint             `json:"branch_id" gorm:"index"`
+	StartDate               time.Time         `json:"start_date"`
+	EndDate                 time.Time         `json:"end_date"`
+	DurationMonths          int               `json:"duration_months"`
+	Price                   float64           `json:"price" gorm:"type:decimal(12,2);not null;default:0"`
+	Currency                string            `json:"currency" gorm:"type:varchar(10);default:'VND'"`
+	Status                  string            `json:"status" gorm:"type:varchar(20);not null;default:'pending';index"`
+	PaymentProvider         string            `json:"payment_provider" gorm:"type:varchar(20);not null;default:'vnpay'"`
+	VnpTxnRef               string            `json:"vnp_txn_ref" gorm:"type:varchar(100);index"`
+	VnpTransactionNo        string            `json:"vnp_transaction_no" gorm:"type:varchar(100);index"`
+	StripeCheckoutSessionID string            `json:"stripe_checkout_session_id" gorm:"type:varchar(255);index"`
+	StripePaymentIntentID   string            `json:"stripe_payment_intent_id" gorm:"type:varchar(255);index"`
 }
 
 func (UserGymMembership) TableName() string { return "user_gym_memberships" }
@@ -76,16 +81,16 @@ func (UserGymMembership) TableName() string { return "user_gym_memberships" }
 // GroupClass is a recurring class type (yoga, zumba, …) at a branch.
 type GroupClass struct {
 	BaseEntity
-	BranchID    uint       `json:"branch_id" gorm:"not null;index"`
-	Branch      GymBranch  `json:"branch,omitempty" gorm:"foreignKey:BranchID"`
-	Name        string     `json:"name" gorm:"type:varchar(200);not null"`
-	Category    string     `json:"category" gorm:"type:varchar(64);index"` // yoga, zumba, hiit, …
-	Description string     `json:"description" gorm:"type:text"`
-	DurationMin int        `json:"duration_min" gorm:"not null;default:60"`
-	Capacity    int        `json:"capacity" gorm:"not null;default:20"`
-	TrainerID   *uint      `json:"trainer_id" gorm:"index"` // optional coach for the class
+	BranchID    uint            `json:"branch_id" gorm:"not null;index"`
+	Branch      GymBranch       `json:"branch,omitempty" gorm:"foreignKey:BranchID"`
+	Name        string          `json:"name" gorm:"type:varchar(200);not null"`
+	Category    string          `json:"category" gorm:"type:varchar(64);index"` // yoga, zumba, hiit, …
+	Description string          `json:"description" gorm:"type:text"`
+	DurationMin int             `json:"duration_min" gorm:"not null;default:60"`
+	Capacity    int             `json:"capacity" gorm:"not null;default:20"`
+	TrainerID   *uint           `json:"trainer_id" gorm:"index"` // optional coach for the class
 	Trainer     *TrainerProfile `json:"trainer,omitempty" gorm:"foreignKey:TrainerID"`
-	IsActive    bool       `json:"is_active" gorm:"not null;default:true;index"`
+	IsActive    bool            `json:"is_active" gorm:"not null;default:true;index"`
 }
 
 func (GroupClass) TableName() string { return "group_classes" }
@@ -136,23 +141,23 @@ func (PTPackage) TableName() string { return "pt_packages" }
 // UserPTPackage is a purchased PT session bundle.
 type UserPTPackage struct {
 	BaseEntity
-	UserID           uint      `json:"user_id" gorm:"not null;index"`
-	User             User      `json:"-" gorm:"foreignKey:UserID"`
-	PTPackageID      uint      `json:"pt_package_id" gorm:"not null;index"`
-	PTPackage        PTPackage `json:"package,omitempty" gorm:"foreignKey:PTPackageID"`
-	TrainerProfileID uint      `json:"trainer_profile_id" gorm:"not null;index"`
-	SessionTotal     int       `json:"session_total" gorm:"not null"`
-	SessionUsed      int       `json:"session_used" gorm:"not null;default:0"`
-	Price            float64   `json:"price" gorm:"type:decimal(12,2);not null;default:0"`
-	Currency         string    `json:"currency" gorm:"type:varchar(10);default:'VND'"`
-	Status           string    `json:"status" gorm:"type:varchar(20);not null;default:'pending';index"`
-	StartsAt         time.Time `json:"starts_at"`
-	ExpiresAt        time.Time `json:"expires_at"`
-	PaymentProvider  string    `json:"payment_provider" gorm:"type:varchar(20);not null;default:'vnpay'"`
-	VnpTxnRef        string    `json:"vnp_txn_ref" gorm:"type:varchar(100);index"`
-	VnpTransactionNo string    `json:"vnp_transaction_no" gorm:"type:varchar(100);index"`
-	StripeCheckoutSessionID string `json:"stripe_checkout_session_id" gorm:"type:varchar(255);index"`
-	StripePaymentIntentID   string `json:"stripe_payment_intent_id" gorm:"type:varchar(255);index"`
+	UserID                  uint      `json:"user_id" gorm:"not null;index"`
+	User                    User      `json:"-" gorm:"foreignKey:UserID"`
+	PTPackageID             uint      `json:"pt_package_id" gorm:"not null;index"`
+	PTPackage               PTPackage `json:"package,omitempty" gorm:"foreignKey:PTPackageID"`
+	TrainerProfileID        uint      `json:"trainer_profile_id" gorm:"not null;index"`
+	SessionTotal            int       `json:"session_total" gorm:"not null"`
+	SessionUsed             int       `json:"session_used" gorm:"not null;default:0"`
+	Price                   float64   `json:"price" gorm:"type:decimal(12,2);not null;default:0"`
+	Currency                string    `json:"currency" gorm:"type:varchar(10);default:'VND'"`
+	Status                  string    `json:"status" gorm:"type:varchar(20);not null;default:'pending';index"`
+	StartsAt                time.Time `json:"starts_at"`
+	ExpiresAt               time.Time `json:"expires_at"`
+	PaymentProvider         string    `json:"payment_provider" gorm:"type:varchar(20);not null;default:'vnpay'"`
+	VnpTxnRef               string    `json:"vnp_txn_ref" gorm:"type:varchar(100);index"`
+	VnpTransactionNo        string    `json:"vnp_transaction_no" gorm:"type:varchar(100);index"`
+	StripeCheckoutSessionID string    `json:"stripe_checkout_session_id" gorm:"type:varchar(255);index"`
+	StripePaymentIntentID   string    `json:"stripe_payment_intent_id" gorm:"type:varchar(255);index"`
 }
 
 func (UserPTPackage) TableName() string { return "user_pt_packages" }
@@ -191,15 +196,15 @@ func (PTEarning) TableName() string { return "pt_earnings" }
 // PTSessionLog is one taught session against a purchased PT package, with photo proof.
 type PTSessionLog struct {
 	BaseEntity
-	UserPTPackageID  uint      `json:"user_pt_package_id" gorm:"not null;index"`
+	UserPTPackageID  uint          `json:"user_pt_package_id" gorm:"not null;index"`
 	UserPTPackage    UserPTPackage `json:"-" gorm:"foreignKey:UserPTPackageID"`
-	TrainerProfileID uint      `json:"trainer_profile_id" gorm:"not null;index"`
-	UserID           uint      `json:"user_id" gorm:"not null;index"` // student
-	SessionIndex     int       `json:"session_index" gorm:"not null"` // 1..SessionTotal
-	TaughtAt         time.Time `json:"taught_at" gorm:"not null;index"`
-	Note             string    `json:"note" gorm:"type:text"`
-	ProofImageURL    string    `json:"proof_image_url" gorm:"type:text;not null"`
-	CreatedByUserID  uint      `json:"created_by_user_id" gorm:"not null"`
+	TrainerProfileID uint          `json:"trainer_profile_id" gorm:"not null;index"`
+	UserID           uint          `json:"user_id" gorm:"not null;index"` // student
+	SessionIndex     int           `json:"session_index" gorm:"not null"` // 1..SessionTotal
+	TaughtAt         time.Time     `json:"taught_at" gorm:"not null;index"`
+	Note             string        `json:"note" gorm:"type:text"`
+	ProofImageURL    string        `json:"proof_image_url" gorm:"type:text;not null"`
+	CreatedByUserID  uint          `json:"created_by_user_id" gorm:"not null"`
 }
 
 func (PTSessionLog) TableName() string { return "pt_session_logs" }
@@ -229,9 +234,33 @@ type PTSessionOffer struct {
 	EndsAt *time.Time `json:"ends_at" gorm:"index"`
 	// BookedViaSlot marks calendar bookings (skip pending negotiate).
 	BookedViaSlot bool `json:"booked_via_slot" gorm:"not null;default:false;index"`
+	// RecurringBookingID links an auto-materialized occurrence back to its
+	// standing weekly reservation (nil for one-off/negotiated bookings).
+	RecurringBookingID *uint `json:"recurring_booking_id,omitempty" gorm:"index"`
 }
 
 func (PTSessionOffer) TableName() string { return "pt_session_offers" }
+
+// PTRecurringBooking is a student's standing weekly reservation with a
+// trainer (e.g. "every Tuesday 14:00") — auto-materialized into dated
+// PTSessionOffer rows on a rolling horizon (see MaterializeRecurringBookings)
+// until paused/canceled or the package runs out of session credits.
+type PTRecurringBooking struct {
+	BaseEntity
+	UserPTPackageID  uint          `json:"user_pt_package_id" gorm:"not null;index"`
+	UserPTPackage    UserPTPackage `json:"-" gorm:"foreignKey:UserPTPackageID"`
+	TrainerProfileID uint          `json:"trainer_profile_id" gorm:"not null;index"`
+	StudentUserID    uint          `json:"student_user_id" gorm:"not null;index"`
+	Weekday          int           `json:"weekday" gorm:"not null"` // 0=Sun..6=Sat
+	StartMinute      int           `json:"start_minute" gorm:"not null"`
+	EndMinute        int           `json:"end_minute" gorm:"not null"`
+	Status           string        `json:"status" gorm:"type:varchar(20);not null;default:'active';index"`
+	// LastGeneratedFor is the VN-local date of the furthest-out occurrence
+	// already materialized, so the rolling generator doesn't re-scan from scratch.
+	LastGeneratedFor *time.Time `json:"last_generated_for,omitempty"`
+}
+
+func (PTRecurringBooking) TableName() string { return "pt_recurring_bookings" }
 
 // PTContentStat is denormalized funnel metrics for one PT-authored content item.
 type PTContentStat struct {
@@ -282,7 +311,7 @@ type PTWorkingHours struct {
 	TrainerProfileID uint `json:"trainer_profile_id" gorm:"not null;index:idx_pt_hours_trainer_weekday;index"`
 	Weekday          int  `json:"weekday" gorm:"not null;index:idx_pt_hours_trainer_weekday"`
 	StartMinute      int  `json:"start_minute" gorm:"not null;default:480"` // 08:00
-	EndMinute        int  `json:"end_minute" gorm:"not null;default:1200"`   // 20:00
+	EndMinute        int  `json:"end_minute" gorm:"not null;default:1200"`  // 20:00
 	IsActive         bool `json:"is_active" gorm:"not null;default:true"`
 }
 
@@ -307,6 +336,11 @@ type PTPackageChatMessage struct {
 	Body            string `json:"body" gorm:"type:text;not null"`
 	MessageType     string `json:"message_type" gorm:"type:varchar(32);not null;default:'text';index"`
 	SessionOfferID  *uint  `json:"session_offer_id" gorm:"index"`
+	// SharedContentType/SharedContentID point a "content_share" message at the
+	// workout/routine/meal_plan the trainer just sent — enough for the client
+	// to build a click-through link, no extra join needed.
+	SharedContentType string `json:"shared_content_type,omitempty" gorm:"type:varchar(20)"`
+	SharedContentID   *uint  `json:"shared_content_id,omitempty"`
 }
 
 func (PTPackageChatMessage) TableName() string { return "pt_package_chat_messages" }
@@ -314,9 +348,9 @@ func (PTPackageChatMessage) TableName() string { return "pt_package_chat_message
 // PTPackageChatRead tracks the last chat message a user has seen on a package thread.
 type PTPackageChatRead struct {
 	BaseEntity
-	UserID              uint `json:"user_id" gorm:"not null;uniqueIndex:idx_pt_chat_read_user_pkg"`
-	UserPTPackageID     uint `json:"user_pt_package_id" gorm:"not null;uniqueIndex:idx_pt_chat_read_user_pkg;index"`
-	LastReadMessageID   uint `json:"last_read_message_id" gorm:"not null;default:0"`
+	UserID            uint `json:"user_id" gorm:"not null;uniqueIndex:idx_pt_chat_read_user_pkg"`
+	UserPTPackageID   uint `json:"user_pt_package_id" gorm:"not null;uniqueIndex:idx_pt_chat_read_user_pkg;index"`
+	LastReadMessageID uint `json:"last_read_message_id" gorm:"not null;default:0"`
 }
 
 func (PTPackageChatRead) TableName() string { return "pt_package_chat_reads" }
